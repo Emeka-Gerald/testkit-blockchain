@@ -7,7 +7,14 @@ mod cli_docs_tests {
 
     fn get_help_output(subcommand: &str) -> String {
         let output = Command::new("cargo")
-            .args(&["run", "--bin", "soroban-testkit", "--", subcommand, "--help"])
+            .args([
+                "run",
+                "--bin",
+                "soroban-testkit",
+                "--",
+                subcommand,
+                "--help",
+            ])
             .current_dir(env!("CARGO_MANIFEST_DIR"))
             .output()
             .expect("Failed to run command");
@@ -22,10 +29,7 @@ mod cli_docs_tests {
         // Assert key flags are documented
         assert!(help.contains("--strict"), "audit should have --strict flag");
         assert!(help.contains("--json"), "audit should have --json flag");
-        assert!(
-            help.contains("PATH"),
-            "audit should document PATH argument"
-        );
+        assert!(help.contains("PATH"), "audit should document PATH argument");
 
         // Assert descriptions are present
         assert!(
@@ -58,7 +62,7 @@ mod cli_docs_tests {
     #[test]
     fn test_main_help_lists_subcommands() {
         let output = Command::new("cargo")
-            .args(&["run", "--bin", "soroban-testkit", "--", "--help"])
+            .args(["run", "--bin", "soroban-testkit", "--", "--help"])
             .current_dir(env!("CARGO_MANIFEST_DIR"))
             .output()
             .expect("Failed to run command");
@@ -78,7 +82,7 @@ mod cli_docs_tests {
     #[test]
     fn test_version_flag_works() {
         let output = Command::new("cargo")
-            .args(&["run", "--bin", "soroban-testkit", "--", "--version"])
+            .args(["run", "--bin", "soroban-testkit", "--", "--version"])
             .current_dir(env!("CARGO_MANIFEST_DIR"))
             .output()
             .expect("Failed to run command");
@@ -90,20 +94,23 @@ mod cli_docs_tests {
             version_output.contains("soroban-testkit") || !version_output.is_empty(),
             "--version should display version info"
         );
-        assert!(output.status.success(), "--version should exit successfully");
+        assert!(
+            output.status.success(),
+            "--version should exit successfully"
+        );
     }
 
     #[test]
     fn test_help_flag_consistency() {
         // Test that -h and --help produce similar output
         let short_output = Command::new("cargo")
-            .args(&["run", "--bin", "soroban-testkit", "--", "-h"])
+            .args(["run", "--bin", "soroban-testkit", "--", "-h"])
             .current_dir(env!("CARGO_MANIFEST_DIR"))
             .output()
             .expect("Failed to run -h");
 
         let long_output = Command::new("cargo")
-            .args(&["run", "--bin", "soroban-testkit", "--", "--help"])
+            .args(["run", "--bin", "soroban-testkit", "--", "--help"])
             .current_dir(env!("CARGO_MANIFEST_DIR"))
             .output()
             .expect("Failed to run --help");
@@ -150,14 +157,11 @@ mod cli_docs_tests {
     fn test_clap_derive_matches_docs() {
         // This test ensures clap-generated help matches our expectations
         // If this fails, either update clap attributes or documentation
-        
+
         let help = get_help_output("audit");
 
         // Key clap attributes should be present
-        assert!(
-            help.contains("Usage:"),
-            "Clap should generate usage line"
-        );
+        assert!(help.contains("Usage:"), "Clap should generate usage line");
         assert!(
             help.contains("Options:") || help.contains("FLAGS:"),
             "Clap should list options"

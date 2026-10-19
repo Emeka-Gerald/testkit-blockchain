@@ -76,6 +76,16 @@ pub fn run(args: AuditArgs, out: Output) -> Result<(), CliError> {
             .map_err(|err| CliError(format!("failed to read stdin: {err}")))?;
         audit_source(&src, "<stdin>", &mut findings);
     } else {
+        // WalkDir yields a missing root as an Err entry, which the
+        // filter_map below would drop, so a typo'd PATH would otherwise
+        // "pass" with no findings.
+        std::fs::metadata(&args.path).map_err(|err| {
+            CliError(format!(
+                "cannot audit {}: {err}; pass a contract crate's source directory, \
+                 a .rs file, or `-` for stdin",
+                super::quote(args.path.display())
+            ))
+        })?;
         for entry in WalkDir::new(&args.path).into_iter().filter_map(Result::ok) {
             if !entry.file_type().is_file() {
                 continue;
@@ -182,8 +192,12 @@ fn finding_path(root: &Path, file: &Path) -> String {
 }
 
 fn audit_file(path: &Path, display: &str, findings: &mut Vec<Finding>) -> Result<(), CliError> {
-    let src = std::fs::read_to_string(path)
-        .map_err(|err| CliError(format!("failed to read {}: {err}", path.display())))?;
+    let src = std::fs::read_to_string(path).map_err(|err| {
+        CliError(format!(
+            "failed to read {}: {err}",
+            super::quote(path.display())
+        ))
+    })?;
     audit_source(&src, display, findings);
     Ok(())
 }

@@ -247,16 +247,9 @@ mod tests {
                 },
             );
 
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let message = crate::testing::assert_panics_with_code("TESTKIT_ASSERTION_FAILED", || {
             matrix.assert_enforced();
-        }));
-
-        let err = result.expect_err("expected assert_enforced to catch the missing auth check");
-        let message = err
-            .downcast_ref::<String>()
-            .cloned()
-            .or_else(|| err.downcast_ref::<&str>().map(|s| s.to_string()))
-            .unwrap_or_default();
+        });
         assert!(
             message.contains("withdraw"),
             "failure message should name the entry point: {message}"

@@ -38,9 +38,10 @@ Proposals falling into these categories will be declined with an explanation poi
   linear history.
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/),
   enforced in CI.
-- Every PR must pass: `cargo fmt --check`, `cargo clippy -- -D warnings`,
-  `cargo test --workspace`, `cargo doc` with no warnings, `cargo audit`,
-  `cargo deny check` (see [Supply-chain policy](#supply-chain-policy)).
+- Every PR must pass: `cargo fmt --all --check`, `cargo clippy --workspace
+  --all-targets -- -D warnings`, `cargo test --workspace`, `cargo doc` with
+  no warnings, `cargo audit`, `cargo deny check` (see
+  [Supply-chain policy](#supply-chain-policy)).
   Red CI blocks merge with no maintainer exception.
 - CI also runs a scheduled job weekly against whatever `soroban-sdk` version
   is currently latest on crates.io (independent of the pinned version in
@@ -61,6 +62,7 @@ needs:
 |---|---|---|
 | `ci.yml` (default for all jobs) | `contents: read` | Check out and build the repo; nothing is written back |
 | `ci.yml` → `scheduled-sdk-check` | `contents: read`, `issues: write` | Opens a tracking issue when the weekly latest-SDK run fails; never runs on `pull_request` |
+| `ci.yml` → `scheduled-nightly-check` | `contents: read`, `issues: write` | Opens a tracking issue when the weekly nightly-toolchain run fails; never runs on `pull_request` |
 | `issue-triage.yml` (default) | none | — |
 | `issue-triage.yml` → `label` | `issues: write` | Adds labels from issue-form selections; no checkout |
 | `label-sync.yml` (default) | none | — |
@@ -269,6 +271,10 @@ the CLI name checks in `crates/cli/tests/repo_config.rs`.
 rustup show               # installs the pinned toolchain from rust-toolchain.toml
 make check                # fmt + clippy + test, same as CI
 ```
+
+`make fmt` (and CI) run `cargo fmt --all --check`, so formatting is enforced
+across every workspace member and example — including test files — not just
+the package you happened to build.
 
 ## Good first issues
 

@@ -59,6 +59,20 @@ jobs:
             status=1
           fi
           exit $status
+      - name: testutils stays out of the example's normal dependency graph
+        run: |
+          # Issue #227: feature boundaries.
+          # `examples/vault` is compiled to wasm by the CLI's integration
+          # tests, so `soroban-sdk/testutils` (host-only) must never reach
+          # its normal dependency graph — only dev-dependencies and the
+          # explicit `testutils` feature may enable it.
+          status=0
+          if cargo tree -p vault -e normal -e features --prefix none | grep -q 'soroban-sdk feature "testutils"'; then
+            echo "::error::soroban-sdk/testutils leaked into vault's normal dependency graph"
+            cargo tree -p vault -e normal -e features
+            status=1
+          fi
+          exit $status
       - name: Workflow token permissions are least-privilege (see CONTRIBUTING.md)
         run: |
           status=0

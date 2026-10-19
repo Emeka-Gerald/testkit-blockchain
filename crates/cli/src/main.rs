@@ -17,7 +17,7 @@ fn main() {
         Commands::LimitsProbe(args) => limits::run_probe(args),
     };
     if let Err(err) = result {
-        eprintln!("{} {err}", out.error_prefix());
+        eprintln!("{}", commands::render_error(out.error_prefix(), &err));
         std::process::exit(1);
     }
 }
