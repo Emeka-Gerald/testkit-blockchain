@@ -129,6 +129,15 @@ vault"
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --workspace
       - run: cargo test --workspace
+      # Issue #214: README runnable snippets. `cargo test --workspace`
+      # already runs the doctest (README is included via lib.rs) and the
+      # `readme_snippets` integration test, but these explicit steps keep
+      # the snippet check visible and fail with a pointed message when the
+      # README drifts from the CLI.
+      - name: README Rust snippets are executable doctests (#214)
+        run: cargo test --doc -p soroban-testkit
+      - name: README command snippets stay executable (#214)
+        run: cargo test -p soroban-testkit-cli --test readme_snippets
 
   doc:
     name: cargo doc

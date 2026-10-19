@@ -17,6 +17,7 @@
 //!     }
 //! }
 //!
+//! # fn main() {
 //! // Setup: register the contract and get a client for it.
 //! let env = TestEnv::new();
 //! let id = env.env().register(Emitter, ());
@@ -27,6 +28,7 @@
 //!
 //! // Assertion: the event is found by topic, with no manual `Val` decoding.
 //! env.events().assert_emitted(symbol_short!("transfer"));
+//! # }
 //! ```
 
 mod assertions;
