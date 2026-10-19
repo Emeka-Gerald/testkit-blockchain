@@ -14,3 +14,6 @@ authors = ["Soroban Testkit contributors"]
 soroban-sdk = "27.0.6"
 thiserror = "2"
 clap = { version = "4", features = ["derive"] }
+
+[workspace.metadata.release]
+shared-version = true
