@@ -579,7 +579,7 @@ Use `clap` with derive. Three subcommands, built in this order.
 Wraps coverage collection for the WASM target, which does not work out of the box.
 
 ```
-soroban-testkit coverage [--format text|lcov|html] [--fail-under <pct>] [--open]
+soroban-testkit coverage [--format text|lcov|html|json] [--fail-under <pct>] [--open]
 ```
 
 Shells out to the underlying coverage tool. Its job is knowing the right flags for Soroban's target, not reimplementing coverage.
