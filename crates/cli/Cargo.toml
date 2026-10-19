@@ -5,6 +5,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+documentation.workspace = true
+readme = "../../README.md"
 keywords = ["soroban", "cli", "testing", "contracts", "coverage"]
 categories = ["command-line-utilities", "development-tools::testing"]
 
