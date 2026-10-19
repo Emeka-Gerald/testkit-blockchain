@@ -1,0 +1,42 @@
+Coverage, resource-limit discovery, and static audit checks for Soroban
+contracts.
+
+Every command runs locally and makes no network access: `coverage` runs
+your tests under `cargo llvm-cov`, `limits` invokes a compiled .wasm in
+an in-process Soroban host, and `audit` only reads source files.
+
+Usage: soroban-testkit [OPTIONS] <COMMAND>
+
+Commands:
+  coverage  Measure test coverage of a contract crate via cargo-llvm-cov
+  limits    Find the largest input a contract function handles before it fails
+  audit     Static checks over a contract crate (not a security product)
+  help      Print this message or the help of the given subcommand(s)
+
+Options:
+      --no-color
+          Never emit ANSI color codes, here or from tools this command runs
+          (e.g. cargo). Same as setting the `NO_COLOR` environment variable
+
+  -q, --quiet
+          Print only results and errors; suppress advisory notes. Cannot be
+          combined with --verbose
+
+  -v, --verbose
+          Print extra diagnostics (commands run, files scanned) to stderr
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
+
+EXIT STATUS:
+    0  success
+    1  the command failed; the reason is printed on stderr as `error: ...`
+    2  invalid usage (unknown flag, missing argument, ...)
+
+ENVIRONMENT:
+    NO_COLOR  a non-empty value has the same effect as --no-color
+
+Run `soroban-testkit <COMMAND> --help` for each command's defaults and limitations.

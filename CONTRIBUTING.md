@@ -174,6 +174,12 @@ full policy check runs.
 - Failure messages are a first-class feature of this crate. An assertion
   helper whose failure message doesn't tell the user what went wrong and
   what to look at is not done.
+- CLI `--help` text must state each command's real defaults and
+  limitations. The top-level and every subcommand's `--help` and `-h`
+  output is pinned in `crates/cli/tests/snapshots/help/`; after an
+  intentional change, regenerate and commit the snapshots with
+  `UPDATE_HELP_SNAPSHOTS=1 cargo test -p soroban-testkit-cli --test help_snapshots`.
+  A new subcommand must add its snapshot cases there.
 
 
 ## Panic and error-handling policy

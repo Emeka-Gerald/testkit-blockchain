@@ -18,17 +18,18 @@ use super::CliError;
     soroban-testkit audit ./src --strict\n    \
     soroban-testkit audit ./src --json | jq '.findings'")]
 pub struct AuditArgs {
-    /// Path to the contract crate to audit (its `.rs` files are scanned
-    /// recursively). Pass `-` to read a single source file from stdin
-    /// instead, for editor integrations that audit unsaved buffers.
-    #[arg(value_name = "PATH", default_value = ".")]
+    /// Directory or .rs file to audit; directories are scanned recursively
+    /// for .rs files. Pass `-` to read a single source file from stdin
+    /// (for editor integrations that audit unsaved buffers)
+    #[arg(value_name = "PATH", default_value = ".", verbatim_doc_comment)]
     path: PathBuf,
-    /// Exit non-zero if any findings are reported.
-    #[arg(long)]
+    /// Exit 1 if any findings are reported. Without it, findings are
+    /// printed and the command still exits 0
+    #[arg(long, verbatim_doc_comment)]
     strict: bool,
-    /// Print findings as a JSON document instead of text. The document
-    /// carries `schema_version`; see [`AUDIT_JSON_SCHEMA_VERSION`].
-    #[arg(long)]
+    /// Print findings as a JSON document (`schema_version` 1) on stdout
+    /// instead of text
+    #[arg(long, verbatim_doc_comment)]
     json: bool,
 }
 
@@ -413,6 +414,13 @@ fn type_is_i128(ty: &Type) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn json_help_states_the_current_schema_version() {
+        // `audit --help` documents `--json` as "(`schema_version` 1)"; bump
+        // that text (and the help snapshot) together with the constant.
+        assert_eq!(AUDIT_JSON_SCHEMA_VERSION, 1);
+    }
 
     #[test]
     fn json_document_declares_schema_version_and_findings() {

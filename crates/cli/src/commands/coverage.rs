@@ -10,9 +10,9 @@ use super::CliError;
 pub enum Format {
     /// Per-file coverage stats printed to the terminal.
     Text,
-    /// An `lcov.info` file, for IDE integrations (e.g. Coverage Gutters).
+    /// Write ./lcov.info, for IDE and CI integrations (e.g. Coverage Gutters).
     Lcov,
-    /// A browsable HTML report.
+    /// Write a browsable report to target/llvm-cov/html/.
     Html,
 }
 
@@ -27,10 +27,13 @@ pub struct CoverageArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = Format::Text)]
     format: Format,
-    /// Fail (non-zero exit) if line coverage is below this percentage.
-    #[arg(long, value_name = "PCT")]
+    /// Exit 1 if line coverage is below PCT percent (0-100). Forwarded to
+    /// cargo-llvm-cov as --fail-under-lines. Default: no threshold
+    #[arg(long, value_name = "PCT", verbatim_doc_comment)]
     fail_under: Option<f64>,
-    /// Open the HTML report after generating it (implies --format html).
+    /// Open the HTML report in a browser after generating it (implies
+    /// --format html)
+    #[arg(verbatim_doc_comment)]
     #[arg(long)]
     open: bool,
     /// Print the cargo command this would run, then exit without running
