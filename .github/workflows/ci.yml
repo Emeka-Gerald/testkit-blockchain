@@ -137,6 +137,8 @@ vault"
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Validate README documentation links
+        run: cargo test -p soroban-testkit-cli --test repo_config readme_links_resolve_to_current_paths
       - run: cargo doc --workspace --no-deps
         env:
           RUSTDOCFLAGS: -D warnings

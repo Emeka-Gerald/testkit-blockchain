@@ -157,6 +157,9 @@ full policy check runs.
 
 ## Code conventions
 
+- **Test names describe behavior, condition, and outcome.** Prefer
+  `<behavior>_when_<condition>_then_<expected_outcome>`; omit a clause only
+  when it does not apply. Do not prefix Rust test functions with `test_`.
 - No `unwrap()` or `expect()` in library code outside tests.
 - Assertion helpers panic deliberately (that is their contract), but always
   with `TestkitError` context, never a bare `panic!("...")` message.

@@ -21,6 +21,111 @@ fn read(rel: &str) -> String {
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()))
 }
 
+fn readme_link_targets(markdown: &str) -> Vec<String> {
+    let mut targets = Vec::new();
+    let mut in_code_fence = false;
+
+    for line in markdown.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_code_fence = !in_code_fence;
+            continue;
+        }
+        if in_code_fence {
+            continue;
+        }
+
+        let mut remaining = line;
+        while let Some((_, after_open)) = remaining.split_once("](") {
+            let Some((target, after_target)) = after_open.split_once(')') else {
+                break;
+            };
+            if let Some(target) = target.split_whitespace().next() {
+                let target = target.trim_start_matches('<').trim_end_matches('>');
+                if !target.is_empty() {
+                    targets.push(target.to_string());
+                }
+            }
+            remaining = after_target;
+        }
+    }
+
+    targets
+}
+
+fn markdown_heading_slug(heading: &str) -> String {
+    let mut slug = String::new();
+
+    for character in heading
+        .trim()
+        .trim_start_matches('#')
+        .trim()
+        .to_lowercase()
+        .chars()
+    {
+        if character.is_whitespace() {
+            if !slug.is_empty() {
+                slug.push('-');
+            }
+        } else if character.is_alphanumeric() || character == '-' || character == '_' {
+            slug.push(character);
+        }
+    }
+
+    slug.trim_matches('-').to_string()
+}
+
+fn markdown_has_heading(markdown: &str, expected_slug: &str) -> bool {
+    markdown.lines().any(|line| {
+        let Some(heading) = line.trim_start().strip_prefix('#') else {
+            return false;
+        };
+        markdown_heading_slug(heading) == expected_slug
+    })
+}
+
+#[test]
+fn readme_links_resolve_to_current_paths() {
+    let root = workspace_root();
+    let readme = read("README.md");
+    let canonical_repository = "https://github.com/soroban-testkit/testkit-blockchain/";
+
+    for target in readme_link_targets(&readme) {
+        if target.starts_with("https://github.com/") {
+            assert!(
+                target.starts_with(canonical_repository),
+                "README GitHub link must use the current project repository: {target}"
+            );
+            continue;
+        }
+        if target.contains("://") || target.starts_with("mailto:") {
+            continue;
+        }
+
+        let (path, fragment) = target
+            .split_once('#')
+            .map_or((target.as_str(), None), |(path, fragment)| {
+                (path, Some(fragment))
+            });
+        let file = if path.is_empty() {
+            root.join("README.md")
+        } else {
+            root.join(path)
+        };
+        assert!(file.is_file(), "README link target does not exist: {target}");
+
+        if let Some(fragment) = fragment {
+            let markdown = fs::read_to_string(&file).unwrap_or_else(|error| {
+                panic!("failed to read README link target {}: {error}", file.display())
+            });
+            assert!(
+                markdown_has_heading(&markdown, fragment),
+                "README link fragment does not resolve: {target}"
+            );
+        }
+    }
+}
+
 fn workflows() -> Vec<(String, String)> {
     let dir = workspace_root().join(".github/workflows");
     let mut out: Vec<(String, String)> = fs::read_dir(&dir)
@@ -354,6 +459,15 @@ fn issue_config_prompts_authors_to_search_existing_issues() {
 }
 
 #[test]
+fn feature_request_requires_explicit_scope_review() {
+    let form = read(".github/ISSUE_TEMPLATE/feature_request.yml");
+    assert!(form.contains("id: scope_review"));
+    assert!(form.contains("../../BUILD_SPEC.md#3-scope-boundaries"));
+    assert!(form.contains("confirm this proposal is in scope."));
+    assert!(form.contains("          required: true"));
+}
+
+#[test]
 fn label_sync_reconciles_every_documented_module_and_size_label() {
     let workflow = read(".github/workflows/label-sync.yml");
     assert!(workflow.contains("workflow_dispatch: {}"));
@@ -423,7 +537,7 @@ body:
 // ---- #282: supported versions policy ---------------------------------------
 
 #[test]
-fn readme_states_a_supported_versions_policy_linked_to_the_toolchain_and_scheduled_check() {
+fn readme_lists_supported_rust_sdk_combinations_and_scheduled_checks() {
     let readme = read("README.md");
     let section = readme
         .split("## Supported versions")
@@ -434,22 +548,33 @@ fn readme_states_a_supported_versions_policy_linked_to_the_toolchain_and_schedul
         .unwrap();
 
     assert!(
-        section.contains("rust-toolchain.toml"),
-        "must link the Rust version statement to the pinned toolchain file: {section}"
+        section.contains("Rust toolchain") && section.contains("`stable`"),
+        "must record Rust and SDK versions together in a compatibility matrix: {section}"
     );
     assert!(
-        section.contains("scheduled-sdk-check"),
-        "must link the soroban-sdk version statement to the scheduled compatibility check: {section}"
+        section.contains("`27.0.6`") && section.contains("Cargo.toml"),
+        "must record the pinned soroban-sdk version and its source: {section}"
+    );
+    assert!(
+        section.contains("scheduled-sdk-check") && section.contains("scheduled-nightly-check"),
+        "must document both scheduled compatibility checks: {section}"
     );
 
     // The policy must not drift from what actually governs these versions.
     let toolchain = read("rust-toolchain.toml");
     assert!(toolchain.contains(r#"channel = "stable""#));
+    let cargo_toml = read("Cargo.toml");
+    assert!(cargo_toml.contains(r#"soroban-sdk = "27.0.6""#));
     let ci = read(".github/workflows/ci.yml");
-    assert!(
-        jobs(&ci).iter().any(|(id, _)| id == "scheduled-sdk-check"),
-        "ci.yml must still have the scheduled-sdk-check job the README references"
-    );
+    let ci_jobs = jobs(&ci);
+    for scheduled_job in ["scheduled-sdk-check", "scheduled-nightly-check"] {
+        assert!(
+            ci_jobs.iter().any(|(id, _)| id == scheduled_job),
+            "ci.yml must still have the {scheduled_job} job the README references"
+        );
+    }
+    assert!(ci.contains("schedule:"), "compatibility checks must remain scheduled");
+    assert!(ci.contains("cron: \"0 6 * * 1\""), "scheduled checks must run weekly");
 }
 
 // ---- #296: issue seeding guide ---------------------------------------------

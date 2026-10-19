@@ -23,7 +23,7 @@ mod cli_docs_tests {
     }
 
     #[test]
-    fn test_audit_help_has_key_flags() {
+    fn audit_help_lists_flags_and_descriptions_when_help_is_requested() {
         let help = get_help_output("audit");
 
         // Assert key flags are documented
@@ -43,7 +43,7 @@ mod cli_docs_tests {
     }
 
     #[test]
-    fn test_audit_examples_present() {
+    fn audit_help_shows_usage_examples_when_help_is_requested() {
         let help = get_help_output("audit");
 
         // Assert examples section exists
@@ -60,7 +60,7 @@ mod cli_docs_tests {
     }
 
     #[test]
-    fn test_main_help_lists_subcommands() {
+    fn main_help_lists_subcommands_when_help_is_requested() {
         let output = Command::new("cargo")
             .args(["run", "--bin", "soroban-testkit", "--", "--help"])
             .current_dir(env!("CARGO_MANIFEST_DIR"))
@@ -80,7 +80,7 @@ mod cli_docs_tests {
     }
 
     #[test]
-    fn test_version_flag_works() {
+    fn version_flag_prints_version_when_requested() {
         let output = Command::new("cargo")
             .args(["run", "--bin", "soroban-testkit", "--", "--version"])
             .current_dir(env!("CARGO_MANIFEST_DIR"))
@@ -101,7 +101,7 @@ mod cli_docs_tests {
     }
 
     #[test]
-    fn test_help_flag_consistency() {
+    fn help_flag_matches_commands_when_invoked_on_each_subcommand() {
         // Test that -h and --help produce similar output
         let short_output = Command::new("cargo")
             .args(["run", "--bin", "soroban-testkit", "--", "-h"])
@@ -130,7 +130,7 @@ mod cli_docs_tests {
     }
 
     #[test]
-    fn test_audit_json_schema_version_documented() {
+    fn audit_json_schema_version_is_documented() {
         let help = get_help_output("audit");
 
         // JSON output should mention schema version
@@ -143,7 +143,7 @@ mod cli_docs_tests {
     }
 
     #[test]
-    fn test_stdin_support_documented() {
+    fn audit_stdin_support_is_documented() {
         let help = get_help_output("audit");
 
         // Stdin support should be documented
@@ -154,7 +154,7 @@ mod cli_docs_tests {
     }
 
     #[test]
-    fn test_clap_derive_matches_docs() {
+    fn clap_derive_surface_matches_documentation() {
         // This test ensures clap-generated help matches our expectations
         // If this fails, either update clap attributes or documentation
 
@@ -169,7 +169,7 @@ mod cli_docs_tests {
     }
 
     #[test]
-    fn test_all_flags_have_descriptions() {
+    fn every_cli_flag_has_a_help_description() {
         let help = get_help_output("audit");
 
         // Count flag definitions vs descriptions
