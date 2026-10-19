@@ -1,0 +1,25 @@
+Static checks over a contract crate (not a security product)
+
+Usage: soroban-testkit audit [OPTIONS] [PATH]
+
+Arguments:
+  [PATH]  Directory or .rs file to audit; directories are scanned recursively
+          for .rs files. Pass `-` to read a single source file from stdin
+          (for editor integrations that audit unsaved buffers) [default: .]
+
+Options:
+      --no-color  Never emit ANSI color codes, here or from tools this command runs
+                  (e.g. cargo). Same as setting the `NO_COLOR` environment variable
+      --strict    Exit 1 if any findings are reported. Without it, findings are
+                  printed and the command still exits 0
+      --json      Print findings as a JSON document (`schema_version` 1) on stdout
+                  instead of text
+  -q, --quiet     Print only results and errors; suppress advisory notes. Cannot be
+                  combined with --verbose
+  -v, --verbose   Print extra diagnostics (commands run, files scanned) to stderr
+  -h, --help      Print help (see more with '--help')
+
+EXAMPLES:
+    soroban-testkit audit ./src
+    soroban-testkit audit ./src --strict
+    soroban-testkit audit ./src --json | jq '.findings'

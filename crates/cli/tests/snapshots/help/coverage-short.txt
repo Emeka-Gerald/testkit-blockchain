@@ -1,0 +1,21 @@
+Measure test coverage of a contract crate via cargo-llvm-cov
+
+Usage: soroban-testkit coverage [OPTIONS]
+
+Options:
+      --format <FORMAT>   Output format [default: text] [possible values: text, lcov, html]
+      --no-color          Never emit ANSI color codes, here or from tools this command runs
+                          (e.g. cargo). Same as setting the `NO_COLOR` environment variable
+      --fail-under <PCT>  Exit 1 if line coverage is below PCT percent (0-100). Forwarded to
+                          cargo-llvm-cov as --fail-under-lines. Default: no threshold
+  -q, --quiet             Print only results and errors; suppress advisory notes. Cannot be
+                          combined with --verbose
+      --open              Open the HTML report in a browser after generating it (implies
+                          --format html)
+  -v, --verbose           Print extra diagnostics (commands run, files scanned) to stderr
+  -h, --help              Print help (see more with '--help')
+
+EXAMPLES:
+    soroban-testkit coverage --format html --open
+    soroban-testkit coverage --format lcov
+    soroban-testkit coverage --fail-under 80

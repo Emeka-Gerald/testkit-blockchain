@@ -16,14 +16,16 @@ use super::CliError;
     soroban-testkit limits --contract target/wasm32v1-none/release/my_contract.wasm --fn batch_payout --ramp recipients\n    \
     soroban-testkit limits --contract my_contract.wasm --fn transfer --ramp amount")]
 pub struct LimitsArgs {
-    /// Path to the compiled contract .wasm file.
-    #[arg(long, value_name = "PATH")]
+    /// Path to the compiled contract .wasm file
+    /// (e.g. `target/wasm32v1-none/release/<crate>.wasm`)
+    #[arg(long, value_name = "PATH", verbatim_doc_comment)]
     contract: std::path::PathBuf,
-    /// The contract function to ramp.
+    /// The contract function to ramp, as named in the contract's spec.
     #[arg(long = "fn", value_name = "NAME")]
     function: String,
-    /// The parameter to increase on each attempt.
-    #[arg(long, value_name = "PARAM")]
+    /// The parameter of --fn to increase on each attempt: an integer type
+    /// (ramped as the value) or `Vec<Address>` (ramped as its length)
+    #[arg(long, value_name = "PARAM", verbatim_doc_comment)]
     ramp: String,
 }
 
