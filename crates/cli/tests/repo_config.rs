@@ -324,6 +324,71 @@ fn every_issue_form_option_maps_to_a_documented_label() {
     }
 }
 
+#[test]
+fn network_free_test_and_cli_checks_are_documented_and_enforced_in_ci() {
+    let contributing = read("CONTRIBUTING.md");
+    let ci = read(".github/workflows/ci.yml");
+
+    for command in [
+        "cargo test --workspace --offline",
+        "cargo run --offline -p soroban-testkit-cli -- --help",
+    ] {
+        assert!(contributing.contains(command), "missing documented command `{command}`");
+        assert!(ci.contains(command), "missing network-free CI command `{command}`");
+    }
+    assert!(ci.contains("sudo unshare --net"));
+}
+
+#[test]
+fn issue_forms_request_reproducible_scenarios_and_acceptance_criteria() {
+    for (form, scenario_label) in [
+        ("bug_report.yml", "Steps to reproduce"),
+        ("feature_request.yml", "Use case and reproduction steps"),
+    ] {
+        let source = read(&format!(".github/ISSUE_TEMPLATE/{form}"));
+        assert!(
+            source.contains(scenario_label),
+            "{form} is missing scenario steps"
+        );
+        assert!(
+            source.contains("id: acceptance"),
+            "{form} is missing acceptance criteria"
+        );
+        assert!(
+            source.contains("label: Acceptance criteria"),
+            "{form} acceptance criteria need a label"
+        );
+    }
+}
+
+#[test]
+fn pull_request_template_covers_tests_docs_and_user_visible_behavior() {
+    let template = read(".github/pull_request_template.md");
+    for required in [
+        "`cargo test --workspace` passes",
+        "Documentation is updated or not needed",
+        "User-visible behavior changes are described and tested",
+    ] {
+        assert!(
+            template.contains(required),
+            "PR checklist is missing `{required}`"
+        );
+    }
+}
+
+#[test]
+fn publish_package_validation_and_exclusions_are_documented_and_in_ci() {
+    let manifest = read("crates/testkit/Cargo.toml");
+    let contributing = read("CONTRIBUTING.md");
+    let ci = read(".github/workflows/ci.yml");
+
+    assert!(manifest.contains("exclude = [\"tests/**\"]"));
+    assert!(contributing.contains("crates/testkit/tests/**"));
+    assert!(contributing.contains("cargo package -p soroban-testkit --list"));
+    assert!(ci.contains("cargo package -p soroban-testkit --list"));
+    assert!(ci.contains("grep -q '^tests/'"));
+}
+
 // ---- #252/#253/#255/#250: repository integration configuration ------------
 
 #[test]
