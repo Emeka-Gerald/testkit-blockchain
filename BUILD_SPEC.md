@@ -134,6 +134,33 @@ soroban-testkit/
 
 The crate must have **zero non-dev network dependencies** and must compile for the WASM target where applicable.
 
+### 3a. Resource probing vs. benchmark-framework scope
+
+**What resource probing is:**
+The CLI's `limits` subcommand (`soroban-testkit limits`) is a *resource probe*, not a benchmark harness. It answers the question "what is the maximum input size (e.g. recipient count, entry count) at which this contract function still fits within Soroban's execution budget?" by invoking the contract with increasing parameter values until it exceeds the resource limit, then reporting the last successful value together with its instruction count, memory bytes, and transaction size.
+
+**What resource probing measures:**
+- The ceiling of a ramped parameter before the Soroban resource limit is breached.
+- Instruction count, memory bytes, and transaction size at that ceiling — the same resource dimensions Soroban's validators enforce.
+- Whether a specific entry point consistently fits within budget across a range of inputs.
+
+**What resource probing does not provide:**
+- Wall-clock timing or CPU-cycle measurements.
+- Statistical analysis, variance, or confidence intervals across repeated runs.
+- Historical result tracking or automated regression detection between commits.
+- A full criterion-style or benchmark-harness workflow.
+
+**How to use resource measurements when investigating changes:**
+Run `soroban-testkit limits --contract <path-to-wasm> --fn <name> --ramp <param>` before and after a change. If the ceiling value or the reported instruction count shifts significantly, the change has affected on-chain resource usage — investigate further before merging. The probe is deterministic (execution is in-process, not network-dependent) so differences between two runs reflect code changes, not environmental noise.
+
+**What would need to change before a larger benchmarking framework could be considered:**
+Adding a criterion-style harness, historical result storage, or automated regression detection would require network-free infrastructure for result persistence, a dedicated CI artifact store, and meaningful statistical methodology for Soroban's sandboxed execution model. Any such proposal must first demonstrate that the resource probe is insufficient for the contributor's actual use case, propose a concrete and bounded extension, and be reviewed against §3's out-of-scope list. Proposals that duplicate or wrap criterion without addressing Soroban-specific resource semantics will be declined.
+
+**Contributor guidance:**
+- Open issues and PRs touching `crates/cli/src/commands/limits.rs` that extend the fields *reported* by the probe (e.g. ledger reads/writes if the SDK exposes them) are in scope.
+- Issues proposing timing-based benchmarks, historical tracking, or criterion integration are out of scope and will be closed with a pointer to this section.
+- The output of `soroban-testkit limits` is documentation of the Soroban execution budget, not a performance benchmark; do not cite it as a wall-clock performance number.
+
 ---
 
 ## 4. Build order

@@ -175,6 +175,95 @@ full policy check runs.
   helper whose failure message doesn't tell the user what went wrong and
   what to look at is not done.
 
+
+## Panic and error-handling policy
+
+This crate has two distinct categories of failure, and they must not be
+conflated. Using the wrong mechanism for a given failure mode is a
+documentation and compatibility bug.
+
+### Assertion helpers — intentional panics
+
+Assertion helpers (any function whose name begins with `assert_` or that
+is documented as verifying a contract invariant) are **expected to panic**
+when the condition under test is not met. A failing assertion is not a
+recoverable error; it is a signal to the developer that the contract
+misbehaved, and panicking is how `cargo test` surfaces that signal.
+
+Rules for assertion helpers:
+
+- **Always panic with a `TestkitError`, never with a bare string.**
+  `panic!("...")` and `panic!("{}", msg)` are prohibited; use
+  `panic!("{}", TestkitError::AssertionFailed("...".into()))` or the
+  equivalent `panic!` through `TestkitError`'s `Display` impl instead.
+- **Use `TestkitError::AssertionFailed`** for invariant violations (an
+  expected event was not emitted, conservation did not hold, an unauthorized
+  call was not rejected).
+- **Use `TestkitError::Misuse`** when the testkit API itself was called
+  outside its documented contract (e.g. asserting on events before a
+  capture window was opened, or warping the ledger clock to a past
+  timestamp). This is a developer error in the test code, not a contract
+  behavior failure.
+- **Include the full observed vs. expected context** in the message so a
+  developer reading the panic output can diagnose the problem without
+  re-running with extra logging.
+- **Pin representative failure output in tests** using
+  `#[should_panic(expected = "...")]` with a meaningful substring of the
+  expected message. Tests that accept any panic string are not sufficient.
+
+### Setup and configuration operations — recoverable errors
+
+Functions that initialize, configure, or acquire resources for testing
+(e.g. constructors, environment wrappers, anything documented as a
+"setup" operation) must **return `Result<_, TestkitError>` or use a
+typed error** rather than panic when an expected, recoverable failure
+occurs. This includes:
+
+- Configuration values that may be invalid (e.g. out-of-range decimals,
+  unknown storage kinds).
+- Resource acquisition that can fail for external reasons.
+- Operations on input that the caller controls and may legitimately get
+  wrong.
+
+Rules for setup operations:
+
+- **Return `Result`**, not `Option` or an untyped `panic`.
+- **Prefer `TestkitError::Misuse`** when the error arises from incorrect
+  use of the API, and **`TestkitError::DecodeFailed`** when a captured
+  value cannot be deserialized into the requested type.
+- **Document the error conditions** in the function's doc comment so
+  callers know when to expect a non-`Ok` return.
+- **Do not use `unwrap()` or `expect()`** in library code outside tests —
+  use `TestkitError::Misuse` and let the caller decide whether to propagate
+  or panic.
+
+### Testing recoverable errors vs. expected panics
+
+| Failure kind | How to test |
+|---|---|
+| Assertion helper that should panic | `#[should_panic(expected = "<substring>")]` pinning the `TestkitError` message |
+| Setup function returning `Err(_)` | `assert!(result.is_err())` or `matches!(result, Err(TestkitError::Misuse(_)))` |
+| Assertion helper that should *not* panic | Call it in a normal test; the absence of panic is the assertion |
+
+Never use `std::panic::catch_unwind` to test a setup function's error
+path — if a setup function can fail in expected ways, it must return
+`Result`, not panic.
+
+### Distinguishing developer-facing from external-input failures
+
+- A panic from an assertion helper is a **developer-facing assertion
+  failure**: the developer's test is telling them the contract misbehaved.
+  It is never caused by external input or production data at test time.
+- A `TestkitError::Misuse` returned from a setup function signals that
+  **the test code itself is incorrect** (wrong arguments, wrong call
+  order). It may be surfaced to the developer as a `Result::Err` or, if
+  the calling code chooses to `unwrap`, as a secondary panic — but the
+  root cause is always the test author's mistake, not the contract's.
+- Functions that take developer-controlled input (seeds, counts, durations)
+  should document any validity constraints in their doc comment and use
+  `TestkitError::Misuse` (returned as `Err`) for constraint violations
+  rather than panicking, so callers can handle them.
+
 ## Maintainer SDK review checklist
 
 The scheduled CI job (`scheduled-sdk-check`) builds against whatever

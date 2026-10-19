@@ -137,7 +137,20 @@ vault"
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo doc --workspace --no-deps
+      # Every rustdoc warning (broken intra-doc links, missing docs, invalid
+      # code blocks, ...) fails CI. The workspace build covers all members;
+      # the per-crate steps below make coverage of each *publishable* crate
+      # explicit so none can silently drop out of the check.
+      - name: Workspace docs (warnings are errors)
+        run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - name: soroban-testkit docs (warnings are errors)
+        run: cargo doc -p soroban-testkit --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - name: soroban-testkit-cli docs (warnings are errors)
+        run: cargo doc -p soroban-testkit-cli --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
       - name: docs.rs configuration (mirrors [package.metadata.docs.rs])
