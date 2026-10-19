@@ -368,6 +368,44 @@ soroban-testkit --verbose coverage --fail-under 80
 
 In CI, run it as an ordinary step; its exit code gates the job.
 
+### Coverage JSON summary
+
+`--format json` writes a machine-readable summary to `coverage.json` in the
+current directory, for CI steps that post or compare coverage numbers. It
+runs `cargo llvm-cov test --json --summary-only --output-path coverage.json`,
+so the file is LLVM's coverage export (`"type": "llvm.coverage.json.export"`,
+`"version": "2.x"`) with totals and per-file summaries but no per-line data.
+
+After the run, `coverage` checks the file against the fields below and fails
+with `error: coverage.json is not a valid coverage summary: ...` if any are
+missing or malformed:
+
+```json
+{
+  "type": "llvm.coverage.json.export",
+  "version": "2.0.1",
+  "data": [{
+    "totals": {
+      "lines":     { "count": 40, "covered": 34, "percent": 85.0 },
+      "functions": { "count": 10, "covered": 9,  "percent": 90.0 },
+      "regions":   { "count": 60, "covered": 48, "percent": 80.0 }
+    },
+    "files": [{ "filename": "src/lib.rs", "summary": { "lines": { "count": 40, "covered": 34, "percent": 85.0 } } }]
+  }]
+}
+```
+
+`count` and `covered` are non-negative integers with `covered <= count`, and
+`percent` is a number in `0..=100`. LLVM may add other fields (such as
+`branches`); consumers should ignore them. On success it prints
+`wrote coverage.json: line coverage 85.00% (34/40 lines)`, which `--quiet`
+suppresses. It combines with `--fail-under` and makes no network access.
+
+```sh
+soroban-testkit coverage --format json --fail-under 80
+jq '.data[0].totals.lines.percent' coverage.json
+```
+
 ### Output controls
 
 These global flags go before or after the subcommand:
