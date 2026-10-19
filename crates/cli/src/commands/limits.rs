@@ -1,4 +1,5 @@
 use std::panic;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::process::Command;
 
 use clap::Args;
@@ -8,7 +9,54 @@ use soroban_sdk::xdr::{ScSpecEntry, ScSpecFunctionInputV0, ScSpecFunctionV0, ScS
 use soroban_sdk::{Address, Env, IntoVal, Symbol, Val, Vec as SVec};
 
 use super::output::Output;
-use super::CliError;
+use super::{quote, CliError};
+
+/// The signal handler only sets an atomic flag; no IO runs inside it.
+static CANCELLED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(unix)]
+mod signals {
+    use super::{CANCELLED, Ordering};
+    use std::os::raw::c_int;
+    const SIGINT: c_int = 2;
+    const SIGTERM: c_int = 15;
+    unsafe extern "C" {
+        fn signal(signum: c_int, handler: usize) -> usize;
+    }
+    extern "C" fn cancel(_: c_int) {
+        CANCELLED.store(true, Ordering::Relaxed);
+    }
+    pub struct SignalGuard {
+        previous_int: usize,
+        previous_term: usize,
+    }
+    impl SignalGuard {
+        pub fn install() -> Self {
+            CANCELLED.store(false, Ordering::Relaxed);
+            // SAFETY: The installed handler only writes an atomic flag.
+            let previous_int = unsafe { signal(SIGINT, cancel as usize) };
+            let previous_term = unsafe { signal(SIGTERM, cancel as usize) };
+            Self { previous_int, previous_term }
+        }
+    }
+    impl Drop for SignalGuard {
+        fn drop(&mut self) {
+            // SAFETY: Restore the handlers returned by signal().
+            unsafe {
+                signal(SIGINT, self.previous_int);
+                signal(SIGTERM, self.previous_term);
+            }
+        }
+    }
+}
+
+#[cfg(not(unix))]
+mod signals {
+    pub struct SignalGuard;
+    impl SignalGuard {
+        pub fn install() -> Self { Self }
+    }
+}
 
 /// Arguments for `soroban-testkit limits`.
 #[derive(Args)]
@@ -82,6 +130,7 @@ pub struct ProbeArgs {
 /// constraint). Only CPU instructions and memory, available locally via
 /// the host's budget, are reported.
 pub fn run(args: LimitsArgs, out: Output) -> Result<(), CliError> {
+    let _signal_guard = signals::SignalGuard::install();
     // Validate the configuration (function exists, ramp parameter exists,
     // every parameter's type is one this command knows how to default or
     // ramp) up front, in-process, before spawning any probes — this is
@@ -124,6 +173,9 @@ pub fn run(args: LimitsArgs, out: Output) -> Result<(), CliError> {
     let mut low = 1u32;
     let mut high = None;
     loop {
+        if CANCELLED.load(Ordering::Relaxed) {
+            return report_interrupted(&args, last_ok);
+        }
         if probe(low)? {
             last_ok = Some(low);
             match low.checked_mul(2) {
@@ -142,10 +194,16 @@ pub fn run(args: LimitsArgs, out: Output) -> Result<(), CliError> {
         }
     }
 
+    if CANCELLED.load(Ordering::Relaxed) {
+        return report_interrupted(&args, last_ok);
+    }
+
     let Some(last_ok) = last_ok else {
         return Err(CliError(format!(
-            "{:?} failed even at the smallest ramp value (1) for parameter {:?}",
-            args.function, args.ramp
+            "{} failed even at the smallest ramp value (1) for parameter {}; check that \
+             the function succeeds with default arguments (run with --verbose to see each probe)",
+            quote(&args.function),
+            quote(&args.ramp)
         )));
     };
 
@@ -156,6 +214,9 @@ pub fn run(args: LimitsArgs, out: Output) -> Result<(), CliError> {
         let mut lo = last_ok;
         let mut hi = hi_start;
         while lo + 1 < hi {
+            if CANCELLED.load(Ordering::Relaxed) {
+                return report_interrupted(&args, Some(lo));
+            }
             let mid = lo + (hi - lo) / 2;
             if probe(mid)? {
                 lo = mid;
@@ -164,6 +225,10 @@ pub fn run(args: LimitsArgs, out: Output) -> Result<(), CliError> {
             }
         }
         best = lo;
+    }
+
+    if CANCELLED.load(Ordering::Relaxed) {
+        return report_interrupted(&args, Some(best));
     }
 
     // Measure resources at the best-known-good value, in-process this
@@ -182,6 +247,21 @@ pub fn run(args: LimitsArgs, out: Output) -> Result<(), CliError> {
     );
 
     Ok(())
+}
+
+/// A cancelled run reports its last successful probe without claiming
+/// a proven maximum or attempting a fresh WASM invocation.
+fn report_interrupted(args: &LimitsArgs, last_ok: Option<u32>) -> Result<(), CliError> {
+    match last_ok {
+        Some(value) => {
+            println!("interrupted; last successful {} for {:?}: {value} (partial result, not a proven maximum)", args.ramp, args.function);
+            println!("  resource measurements unavailable after cancellation");
+            Ok(())
+        }
+        None => Err(CliError(format!(
+            "limits search interrupted before any successful probe for {:?}", args.function
+        ))),
+    }
 }
 
 /// The hidden probe entry point: performs exactly one invocation and
@@ -248,11 +328,14 @@ fn load(
     function: &str,
     ramp: &str,
 ) -> Result<(Address, Env, ScSpecFunctionV0, usize), CliError> {
-    let wasm = std::fs::read(contract)
-        .map_err(|err| CliError(format!("failed to read {}: {err}", contract.display())))?;
+    let wasm = std::fs::read(contract).map_err(|err| {
+        CliError(format!(
+            "failed to read {}: {err}; pass the path to a compiled contract .wasm",
+            quote(contract.display())
+        ))
+    })?;
 
-    let entries = soroban_spec::read::from_wasm(&wasm)
-        .map_err(|err| CliError(format!("failed to read contract spec: {err}")))?;
+    let entries = soroban_spec::read::from_wasm(&wasm).map_err(|err| spec_error(contract, &err))?;
 
     let func_spec = find_function_spec(entries, contract, function)?;
     let ramp_index = ramp_index_of(&func_spec, function, ramp)?;
@@ -272,6 +355,81 @@ fn load(
     Ok((contract_id, env, func_spec, ramp_index))
 }
 
+/// An actionable message for a `.wasm` whose contract spec can't be read.
+/// `FromWasmError`'s own `Display` is just "reading wasm" etc., which
+/// names neither the file nor the fix.
+fn spec_error(contract: &std::path::Path, err: &soroban_spec::read::FromWasmError) -> CliError {
+    use soroban_spec::read::FromWasmError;
+
+    let path = quote(contract.display());
+    CliError(match err {
+        FromWasmError::Read(source) => format!(
+            "{path} is not a valid WebAssembly module ({source}); pass a contract built for \
+             wasm32v1-none, e.g. target/wasm32v1-none/release/<crate>.wasm"
+        ),
+        FromWasmError::Parse(source) => format!(
+            "{path} has a malformed contract spec ({source}); rebuild it with a current \
+             soroban-sdk"
+        ),
+        FromWasmError::NotFound => format!(
+            "{path} has no contract spec (no `contractspecv0` section); is it a Soroban \
+             contract built with soroban-sdk?"
+        ),
+    })
+}
+
+/// A Rust-like name for a contract spec type, for error messages, e.g.
+/// `Vec<Address>`, `Map<Symbol, u32>` or `Option<BytesN<32>>`, in place
+/// of the XDR struct's `Debug` dump.
+fn type_name(type_: &ScSpecTypeDef) -> String {
+    let simple = match type_ {
+        ScSpecTypeDef::Val => "Val",
+        ScSpecTypeDef::Bool => "bool",
+        ScSpecTypeDef::Void => "()",
+        ScSpecTypeDef::Error => "Error",
+        ScSpecTypeDef::U32 => "u32",
+        ScSpecTypeDef::I32 => "i32",
+        ScSpecTypeDef::U64 => "u64",
+        ScSpecTypeDef::I64 => "i64",
+        ScSpecTypeDef::Timepoint => "Timepoint",
+        ScSpecTypeDef::Duration => "Duration",
+        ScSpecTypeDef::U128 => "u128",
+        ScSpecTypeDef::I128 => "i128",
+        ScSpecTypeDef::U256 => "U256",
+        ScSpecTypeDef::I256 => "I256",
+        ScSpecTypeDef::Bytes => "Bytes",
+        ScSpecTypeDef::String => "String",
+        ScSpecTypeDef::Symbol => "Symbol",
+        ScSpecTypeDef::Address => "Address",
+        ScSpecTypeDef::MuxedAddress => "MuxedAddress",
+        ScSpecTypeDef::Option(option) => {
+            return format!("Option<{}>", type_name(&option.value_type))
+        }
+        ScSpecTypeDef::Result(result) => {
+            return format!(
+                "Result<{}, {}>",
+                type_name(&result.ok_type),
+                type_name(&result.error_type)
+            )
+        }
+        ScSpecTypeDef::Vec(vec) => return format!("Vec<{}>", type_name(&vec.element_type)),
+        ScSpecTypeDef::Map(map) => {
+            return format!(
+                "Map<{}, {}>",
+                type_name(&map.key_type),
+                type_name(&map.value_type)
+            )
+        }
+        ScSpecTypeDef::Tuple(tuple) => {
+            let items: Vec<String> = tuple.value_types.iter().map(type_name).collect();
+            return format!("({})", items.join(", "));
+        }
+        ScSpecTypeDef::BytesN(bytes) => return format!("BytesN<{}>", bytes.n),
+        ScSpecTypeDef::Udt(udt) => return udt.name.to_utf8_string_lossy(),
+    };
+    simple.to_string()
+}
+
 /// Picks `function` out of a contract's spec entries. Split out of [`load`]
 /// so the lookup can be tested against hand-built spec fixtures, without a
 /// compiled `.wasm`.
@@ -288,8 +446,9 @@ fn find_function_spec(
         })
         .ok_or_else(|| {
             CliError(format!(
-                "no function named {function:?} in {}'s spec",
-                contract.display()
+                "no function named {} in {}'s spec; check the --fn name",
+                quote(function),
+                quote(contract.display())
             ))
         })
 }
@@ -304,7 +463,23 @@ fn ramp_index_of(
         .inputs
         .iter()
         .position(|input| input.name.to_utf8_string_lossy() == ramp)
-        .ok_or_else(|| CliError(format!("{function:?} has no parameter named {ramp:?}")))
+        .ok_or_else(|| {
+            let params: Vec<String> = func_spec
+                .inputs
+                .iter()
+                .map(|input| quote(input.name.to_utf8_string_lossy()))
+                .collect();
+            let params = if params.is_empty() {
+                "it takes no parameters".to_string()
+            } else {
+                format!("its parameters are {}", params.join(", "))
+            };
+            CliError(format!(
+                "{} has no parameter named {}; {params}",
+                quote(function),
+                quote(ramp)
+            ))
+        })
 }
 
 fn build_args(
@@ -353,8 +528,9 @@ fn ramp_val(env: &Env, type_: &ScSpecTypeDef, ramp_value: u32) -> Result<Val, Cl
             Ok(addrs.into_val(env))
         }
         other => Err(CliError(format!(
-            "the ramp parameter's type ({other:?}) isn't supported yet; supported ramp types \
-             are u32/i32/u64/i64/u128/i128 and Vec<Address>"
+            "the ramp parameter's type ({}) isn't supported yet; supported ramp types \
+             are u32/i32/u64/i64/u128/i128 and Vec<Address>",
+            quote(type_name(other))
         ))),
     }
 }
@@ -414,10 +590,11 @@ fn default_val(
         ScSpecTypeDef::Bytes => Ok(soroban_sdk::Bytes::new(env).into_val(env)),
         ScSpecTypeDef::Vec(_) => Ok(SVec::<Val>::new(env).into_val(env)),
         other => Err(CliError(format!(
-            "parameter {:?} has type {other:?}, which this command doesn't know how to \
-             default yet; only the --ramp parameter needs a type this command understands \
-             today, every other parameter needs a supported default type",
-            input.name.to_utf8_string_lossy()
+            "parameter {} has type {}, which this command doesn't know how to \
+             default yet; every parameter other than --ramp needs one of Address, bool, \
+             u32/i32/u64/i64/u128/i128, Symbol, String, Bytes or Vec",
+            quote(input.name.to_utf8_string_lossy()),
+            quote(type_name(other))
         ))),
     }
 }
@@ -427,9 +604,24 @@ fn default_val(
 /// building a `.wasm` first.
 #[cfg(test)]
 mod tests {
-    use soroban_sdk::xdr::{ScSpecTypeMap, ScSpecTypeVec, ScSymbol};
+    use soroban_sdk::xdr::{
+        ScSpecTypeBytesN, ScSpecTypeMap, ScSpecTypeOption, ScSpecTypeResult, ScSpecTypeTuple,
+        ScSpecTypeUdt, ScSpecTypeVec, ScSymbol,
+    };
 
     use super::*;
+
+    #[test]
+    fn cancellation_without_success_is_an_error() {
+        let args = LimitsArgs {
+            contract: "test.wasm".into(),
+            function: "run".into(),
+            ramp: "amount".into(),
+        };
+        let err = report_interrupted(&args, None).expect_err("no successful result");
+        assert!(err.0.contains("before any successful probe"));
+        assert!(report_interrupted(&args, Some(7)).is_ok());
+    }
 
     fn vec_of(element: ScSpecTypeDef) -> ScSpecTypeDef {
         ScSpecTypeDef::Vec(Box::new(ScSpecTypeVec {
@@ -505,8 +697,8 @@ mod tests {
             "withdraw",
         )
         .expect_err("withdraw is not in the spec");
-        assert!(err.0.contains("no function named \"withdraw\""), "{err}");
-        assert!(err.0.contains("vault.wasm"), "{err}");
+        assert!(err.0.contains("no function named `withdraw`"), "{err}");
+        assert!(err.0.contains("`vault.wasm`"), "{err}");
     }
 
     #[test]
@@ -532,9 +724,11 @@ mod tests {
         );
         let err = ramp_index_of(&func, "batch_payout", "recipients").expect_err("no such input");
         assert!(
-            err.0.contains("has no parameter named \"recipients\""),
+            err.0
+                .contains("`batch_payout` has no parameter named `recipients`"),
             "{err}"
         );
+        assert!(err.0.contains("its parameters are `funder`"), "{err}");
     }
 
     #[test]
@@ -594,5 +788,80 @@ mod tests {
         let fixture = input("balances", ty.clone());
         let err = default_val(&env, &admin, &ty, &fixture).expect_err("Map has no default");
         assert!(err.0.contains("doesn't know how to default"), "{err}");
+        assert!(
+            err.0
+                .contains("parameter `balances` has type `Map<Symbol, u32>`"),
+            "{err}"
+        );
+        assert_no_debug_output(&err);
+    }
+
+    /// The raw `Debug` shapes the error conventions in `commands/mod.rs`
+    /// rule out.
+    fn assert_no_debug_output(err: &CliError) {
+        for marker in ["ScSpecType", " { ", "Box(", "\\\""] {
+            assert!(!err.0.contains(marker), "debug output {marker:?} in: {err}");
+        }
+    }
+
+    #[test]
+    fn unsupported_ramp_types_are_named_without_debug_output() {
+        let env = Env::default();
+        let ty = ScSpecTypeDef::Option(Box::new(ScSpecTypeOption {
+            value_type: Box::new(vec_of(ScSpecTypeDef::BytesN(ScSpecTypeBytesN { n: 32 }))),
+        }));
+        let err = ramp_val(&env, &ty, 3).expect_err("not a ramp type");
+        assert!(err.0.contains("(`Option<Vec<BytesN<32>>>`)"), "{err}");
+        assert_no_debug_output(&err);
+    }
+
+    #[test]
+    fn type_names_read_like_rust() {
+        let cases = [
+            (ScSpecTypeDef::U32, "u32"),
+            (ScSpecTypeDef::Bool, "bool"),
+            (vec_of(ScSpecTypeDef::Address), "Vec<Address>"),
+            (
+                ScSpecTypeDef::Result(Box::new(ScSpecTypeResult {
+                    ok_type: Box::new(ScSpecTypeDef::Void),
+                    error_type: Box::new(ScSpecTypeDef::Error),
+                })),
+                "Result<(), Error>",
+            ),
+            (
+                ScSpecTypeDef::Tuple(Box::new(ScSpecTypeTuple {
+                    value_types: vec![ScSpecTypeDef::I128, ScSpecTypeDef::Symbol]
+                        .try_into()
+                        .expect("two types fit"),
+                })),
+                "(i128, Symbol)",
+            ),
+            (
+                ScSpecTypeDef::Udt(ScSpecTypeUdt {
+                    name: "DataKey".try_into().expect("name fits"),
+                }),
+                "DataKey",
+            ),
+        ];
+        for (ty, expected) in cases {
+            assert_eq!(type_name(&ty), expected);
+        }
+    }
+
+    #[test]
+    fn spec_read_failures_name_the_file_and_the_fix() {
+        let path = std::path::Path::new("README.md");
+        let err = soroban_spec::read::from_wasm(b"not wasm").expect_err("not a wasm module");
+        let err = spec_error(path, &err);
+        assert!(
+            err.0
+                .starts_with("`README.md` is not a valid WebAssembly module"),
+            "{err}"
+        );
+        assert!(err.0.contains("wasm32v1-none"), "{err}");
+        assert_no_debug_output(&err);
+
+        let err = spec_error(path, &soroban_spec::read::FromWasmError::NotFound);
+        assert!(err.0.contains("no contract spec"), "{err}");
     }
 }

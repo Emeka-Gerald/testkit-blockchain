@@ -344,6 +344,7 @@ fn coverage_help_includes_usage_examples() {
     assert!(stdout.contains("--format html"), "{stdout}");
     assert!(stdout.contains("--format lcov"), "{stdout}");
     assert!(stdout.contains("--fail-under"), "{stdout}");
+    assert!(stdout.contains("--dry-run"), "{stdout}");
 }
 
 #[test]
@@ -367,4 +368,93 @@ fn audit_help_includes_usage_examples() {
     assert!(stdout.contains("EXAMPLES"), "{stdout}");
     assert!(stdout.contains("--strict"), "{stdout}");
     assert!(stdout.contains("--json"), "{stdout}");
+}
+
+// ---- #204: coverage argument construction without cargo-llvm-cov --------
+
+/// Runs the binary with `PATH` pointing at a directory that does not
+/// exist, so neither `cargo` nor `cargo-llvm-cov` can be found: anything
+/// that passes here demonstrably needs no external tool.
+fn run_without_tools(args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_soroban-testkit"))
+        .args(args)
+        .current_dir(workspace_root())
+        .env(
+            "PATH",
+            workspace_root().join("target/no-tools-on-this-path"),
+        )
+        .env_remove("NO_COLOR")
+        .output()
+        .expect("failed to run soroban-testkit")
+}
+
+fn dry_run(args: &[&str]) -> String {
+    let output = run_without_tools(args);
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{args:?}: stderr: {stderr}");
+    assert!(stderr.is_empty(), "{args:?}: stderr: {stderr}");
+    stdout
+}
+
+#[test]
+fn coverage_dry_run_prints_the_forwarded_flags_without_cargo_llvm_cov() {
+    let cases: &[(&[&str], &str)] = &[
+        (&["coverage", "--dry-run"], "cargo llvm-cov test\n"),
+        (
+            &[
+                "coverage",
+                "--dry-run",
+                "--format",
+                "lcov",
+                "--fail-under",
+                "92.5",
+            ],
+            "cargo llvm-cov test --lcov --output-path lcov.info --fail-under-lines 92.5\n",
+        ),
+        (
+            &["coverage", "--dry-run", "--format", "html", "--open"],
+            "cargo llvm-cov test --html --open\n",
+        ),
+        (
+            &["coverage", "--dry-run", "--open"],
+            "cargo llvm-cov test --html --open\n",
+        ),
+        (
+            &["-v", "coverage", "--dry-run", "--fail-under", "80"],
+            "cargo llvm-cov test --fail-under-lines 80 --verbose\n",
+        ),
+        (
+            &["--no-color", "-q", "coverage", "--dry-run"],
+            "CARGO_TERM_COLOR=never NO_COLOR=1 cargo llvm-cov test --color never --quiet\n",
+        ),
+    ];
+    for (args, expected) in cases {
+        assert_eq!(dry_run(args), *expected, "{args:?}");
+    }
+}
+
+#[test]
+fn coverage_open_with_lcov_is_rejected_before_running_anything() {
+    let output = run_without_tools(&["coverage", "--format", "lcov", "--open"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "stderr: {stderr}");
+    assert!(
+        stderr.starts_with("error: --open only applies to the HTML report"),
+        "{stderr}"
+    );
+    assert!(output.stdout.is_empty());
+}
+
+#[test]
+fn coverage_without_cargo_on_path_reports_how_to_install_it() {
+    let output = run_without_tools(&["coverage", "--fail-under", "80"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "stderr: {stderr}");
+    assert!(
+        stderr.starts_with("error: failed to run `cargo llvm-cov`"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("cargo install cargo-llvm-cov"), "{stderr}");
+    assert!(!stderr.contains("panicked"), "{stderr}");
 }

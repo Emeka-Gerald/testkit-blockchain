@@ -1,5 +1,3 @@
-use std::any::Any;
-
 use soroban_sdk::testutils::storage::{Instance as _, Persistent as _, Temporary as _};
 use soroban_sdk::testutils::Ledger as _;
 use soroban_sdk::{Address, Env, IntoVal, Val};
@@ -190,7 +188,7 @@ impl TestEnv {
                 TestkitError::AssertionFailed(format!(
                     "expected the contract to survive {kind:?} storage expiry gracefully, \
                      but it panicked: {}",
-                    panic_message(&payload)
+                    crate::internal::panic_message(payload.as_ref())
                 ))
             );
         }
@@ -202,16 +200,6 @@ impl TestEnv {
             StorageKind::Persistent => self.env().storage().persistent().get_ttl(key_val),
             StorageKind::Instance => self.env().storage().instance().get_ttl(),
         })
-    }
-}
-
-fn panic_message(payload: &(dyn Any + Send)) -> String {
-    if let Some(s) = payload.downcast_ref::<&str>() {
-        s.to_string()
-    } else if let Some(s) = payload.downcast_ref::<String>() {
-        s.clone()
-    } else {
-        "<non-string panic payload>".to_string()
     }
 }
 

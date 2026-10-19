@@ -25,4 +25,4 @@ The `vault` example is a deliberately buggy Soroban contract used in:
 - **Package**: `vault`
 - **Purpose**: Testing and documentation fixture
 - **Status**: Intentionally buggy, maintained for testing purposes only
-- **License**: Same as workspace (MIT OR Apache-2.0)
+- **License**: Apache-2.0, same as the workspace

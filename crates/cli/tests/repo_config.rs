@@ -72,7 +72,13 @@ fn jobs(yml: &str) -> Vec<(String, String)> {
     let mut in_jobs = false;
     for line in yml.lines() {
         if !line.starts_with(' ') && !line.is_empty() {
-            in_jobs = line.starts_with("jobs:");
+            // Only a top-level YAML key ends the `jobs:` block. Embedded
+            // script text can also start at column 0 (for example a
+            // multi-line shell string), so match on the key shape rather
+            // than treating every unindented line as a section boundary.
+            if line.trim_end().ends_with(':') {
+                in_jobs = line.starts_with("jobs:");
+            }
             continue;
         }
         if !in_jobs {
@@ -209,9 +215,15 @@ fn ci_default_token_is_read_only_and_only_the_scheduled_job_writes() {
     let ci_jobs = jobs(&ci);
     assert!(ci_jobs.len() >= 7, "job parsing broke: {ci_jobs:?}");
     for (id, body) in &ci_jobs {
-        if id == "scheduled-sdk-check" {
-            assert!(body.contains("    permissions:\n      contents: read\n      issues: write\n"));
-            assert!(body.contains("if: github.event_name != 'pull_request'"));
+        if id == "scheduled-sdk-check" || id == "scheduled-nightly-check" {
+            assert!(
+                body.contains("    permissions:\n      contents: read\n      issues: write\n"),
+                "`{id}` must declare its own write scope:\n{body}"
+            );
+            assert!(
+                body.contains("if: github.event_name != 'pull_request'"),
+                "`{id}` must never run on pull requests:\n{body}"
+            );
         } else {
             assert!(
                 permission_keys(body).is_empty(),
@@ -805,4 +817,184 @@ fn every_manifest_inherited_key_is_defined_in_workspace_package() {
             }
         }
     }
+}
+
+// ---- #225: license and repository metadata consistency ---------------------
+
+/// Every `key = value` in `[workspace.package]`.
+fn workspace_package_field(key: &str) -> String {
+    let root = read("Cargo.toml");
+    let table = root
+        .split("[workspace.package]")
+        .nth(1)
+        .expect("Cargo.toml must declare [workspace.package]")
+        .split("\n[")
+        .next()
+        .unwrap();
+    table
+        .lines()
+        .find_map(|l| l.strip_prefix(&format!("{key} = ")))
+        .unwrap_or_else(|| panic!("[workspace.package] must define `{key}`"))
+        .trim()
+        .trim_matches('"')
+        .to_string()
+}
+
+#[test]
+fn every_member_inherits_the_workspace_license_and_repository() {
+    assert_eq!(workspace_package_field("license"), "Apache-2.0");
+    assert_eq!(
+        workspace_package_field("repository"),
+        "https://github.com/soroban-testkit/testkit-blockchain"
+    );
+
+    for manifest in [
+        "crates/cli/Cargo.toml",
+        "crates/testkit/Cargo.toml",
+        "examples/vault/Cargo.toml",
+    ] {
+        let contents = read(manifest);
+        for key in ["license", "repository"] {
+            assert!(
+                contents.contains(&format!("{key}.workspace = true")),
+                "{manifest} must inherit `{key}` from [workspace.package]"
+            );
+            assert!(
+                !contents.contains(&format!("\n{key} = ")),
+                "{manifest} must not redefine `{key}`; inherit it instead"
+            );
+        }
+    }
+}
+
+#[test]
+fn documentation_never_claims_a_dual_mit_license() {
+    for doc in ["README.md", "ARCHITECTURE.md", "examples/vault/README.md"] {
+        let contents = read(doc);
+        assert!(
+            !contents.contains("MIT OR Apache"),
+            "{doc} must state the workspace license (Apache-2.0), not a dual MIT/Apache license"
+        );
+    }
+    assert!(
+        read("examples/vault/README.md").contains("Apache-2.0"),
+        "examples/vault/README.md must name the workspace license"
+    );
+    assert_eq!(workspace_package_field("license"), "Apache-2.0");
+}
+
+// ---- #226: workspace-wide rustfmt scope ------------------------------------
+
+#[test]
+fn format_checks_cover_the_whole_workspace_everywhere() {
+    let command = "cargo fmt --all --check";
+
+    let ci = read(".github/workflows/ci.yml");
+    let (_, lint_job) = jobs(&ci)
+        .into_iter()
+        .find(|(id, _)| id == "lint")
+        .expect("ci.yml must have a `lint` job");
+    assert!(
+        lint_job.contains(command),
+        "CI must format-check every workspace member and example:\n{lint_job}"
+    );
+
+    let makefile = read("Makefile");
+    assert!(
+        makefile.contains(&format!("\t{command}")),
+        "the `fmt` target must use `{command}`"
+    );
+
+    let contributing = read("CONTRIBUTING.md");
+    assert!(
+        contributing.contains("cargo fmt --all --check"),
+        "CONTRIBUTING.md must document the workspace-wide format command"
+    );
+}
+
+// ---- #227: workspace feature boundaries ------------------------------------
+
+#[test]
+fn testutils_stays_confined_to_dev_and_host_side_contexts() {
+    let workspace = read("Cargo.toml");
+    assert!(
+        workspace.contains("members = [\"crates/*\", \"examples/vault\"]"),
+        "examples must stay workspace members so their features are resolved together"
+    );
+
+    // The library and CLI are host-side test tooling: enabling `testutils`
+    // in their normal dependencies is the point.
+    for host_crate in ["crates/testkit/Cargo.toml", "crates/cli/Cargo.toml"] {
+        assert!(
+            read(host_crate)
+                .contains(r#"soroban-sdk = { workspace = true, features = ["testutils"] }"#),
+            "{host_crate} must enable `soroban-sdk/testutils` unconditionally"
+        );
+    }
+
+    // The example contract is wasm-buildable: `testutils` must never leak
+    // into its normal dependency graph, only into dev/feature contexts.
+    let vault = read("examples/vault/Cargo.toml");
+    let normal_deps = vault
+        .split("[dependencies]")
+        .nth(1)
+        .and_then(|s| s.split("\n[").next())
+        .expect("examples/vault/Cargo.toml must have a [dependencies] table");
+    assert!(
+        normal_deps.contains("soroban-sdk.workspace = true"),
+        "vault's normal soroban-sdk dependency must not enable `testutils`:\n{normal_deps}"
+    );
+    assert!(
+        !normal_deps.contains("testutils"),
+        "vault's normal soroban-sdk dependency must not enable `testutils`:\n{normal_deps}"
+    );
+    assert!(
+        vault.contains(r#"soroban-sdk = { workspace = true, features = ["testutils"] }"#),
+        "vault must enable `testutils` only under [dev-dependencies]"
+    );
+
+    // CLI-only parsing/argument crates must not creep into the library.
+    let testkit = read("crates/testkit/Cargo.toml");
+    let testkit_deps = testkit
+        .split("[dependencies]")
+        .nth(1)
+        .and_then(|s| s.split("\n[").next())
+        .expect("crates/testkit/Cargo.toml must have a [dependencies] table");
+    for cli_only in [
+        "syn",
+        "quote",
+        "proc-macro2",
+        "walkdir",
+        "clap",
+        "soroban-spec",
+    ] {
+        assert!(
+            !testkit_deps
+                .lines()
+                .any(|l| l.trim_start().starts_with(&format!("{cli_only} "))),
+            "`{cli_only}` is CLI-only and must not appear in crates/testkit's normal dependencies"
+        );
+    }
+}
+
+#[test]
+fn ci_enforces_the_feature_boundary_with_a_cargo_tree_policy_check() {
+    let ci = read(".github/workflows/ci.yml");
+    let (_, lint_job) = jobs(&ci)
+        .into_iter()
+        .find(|(id, _)| id == "lint")
+        .expect("ci.yml must have a `lint` job");
+
+    assert!(
+        lint_job.contains("cargo tree -p vault -e normal -e features"),
+        "CI must check that `testutils` does not leak into the example's normal graph:\n{lint_job}"
+    );
+    assert!(
+        lint_job.contains("soroban-sdk feature \"testutils\""),
+        "the vault feature check must look for `soroban-sdk feature \"testutils\"`"
+    );
+    assert!(
+        lint_job.contains("cargo tree -p soroban-testkit -e normal"),
+        "CI must keep the library/CLI dependency-boundary check"
+    );
 }

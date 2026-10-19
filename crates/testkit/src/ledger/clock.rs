@@ -840,14 +840,9 @@ mod tests {
     #[test]
     fn overflow_message_names_the_offending_duration() {
         let env = TestEnv::new();
-        let payload = panic::catch_unwind(AssertUnwindSafe(|| {
+        let message = crate::testing::assert_panics_with_code("TESTKIT_MISUSE", || {
             env.advance(Duration::from_secs(u64::MAX));
-        }))
-        .unwrap_err();
-        let message = payload
-            .downcast_ref::<String>()
-            .expect("panic payload should be a formatted String");
-        assert!(message.contains("misuse of testkit API"), "{message}");
+        });
         assert!(message.contains(&u64::MAX.to_string()), "{message}");
     }
 

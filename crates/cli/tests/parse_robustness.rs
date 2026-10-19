@@ -8,7 +8,7 @@ mod parse_robustness_tests {
     fn audit_source(source: &str) -> Result<String, String> {
         // Run audit command with source from stdin
         let output = Command::new("cargo")
-            .args(&["run", "--bin", "soroban-testkit", "--", "audit", "-"])
+            .args(["run", "--bin", "soroban-testkit", "--", "audit", "-"])
             .current_dir(env!("CARGO_MANIFEST_DIR"))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -168,12 +168,12 @@ impl Contract {
         let invalid_source = "pub fn {{{{{";
 
         let result = audit_source(invalid_source);
-        
+
         if let Err(e) = result {
             // Error message should mention parsing or syntax
             assert!(
-                e.contains("parse") 
-                    || e.contains("syntax") 
+                e.contains("parse")
+                    || e.contains("syntax")
                     || e.contains("expected")
                     || e.contains("unexpected"),
                 "Parse error should be actionable: {}",

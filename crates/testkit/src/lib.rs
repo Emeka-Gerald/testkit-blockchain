@@ -34,6 +34,11 @@ pub mod prelude;
 pub mod tokens;
 pub mod ttl;
 
+mod internal;
+
+#[cfg(test)]
+mod testing;
+
 #[cfg(test)]
 mod api_diff_check {
     use crate::auth::AuthMatrix;
@@ -65,8 +70,16 @@ mod api_diff_check {
         let _token: Option<TestToken> = None;
         let _kind: Option<StorageKind> = None;
         drop((
-            _env, _code, _event, _log, _amounts, _bps, _conservation, _matrix,
-            _token, _kind,
+            _env,
+            _code,
+            _event,
+            _log,
+            _amounts,
+            _bps,
+            _conservation,
+            _matrix,
+            _token,
+            _kind,
         ));
     }
 }

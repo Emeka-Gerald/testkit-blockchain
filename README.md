@@ -204,12 +204,27 @@ error: coverage run failed (cargo llvm-cov exited with exit status: 101)
 # limits: unknown --fn or --ramp parameter name
 $ soroban-testkit limits --contract target/wasm32v1-none/release/my_contract.wasm \
   --fn batch_payout --ramp nonexistent_param
-error: "batch_payout" has no parameter named "nonexistent_param"
+error: `batch_payout` has no parameter named `nonexistent_param`; its parameters are `recipients`, `amount`
+
+# limits: a parameter whose type the command can't build a value for
+error: parameter `balances` has type `Map<Symbol, u32>`, which this command doesn't know how to default yet; ...
+
+# audit: PATH doesn't exist
+$ soroban-testkit audit ./scr
+error: cannot audit `./scr`: No such file or directory (os error 2); pass a contract crate's source directory, a .rs file, or `-` for stdin
 
 # audit --strict: exits non-zero when findings exist (printed above this line)
 $ soroban-testkit audit ./src --strict
 error: 2 audit finding(s) (--strict)
 ```
+
+Every command reports failures the same way: exit status 1 and a single
+`error: <message>` on stderr (clap's own usage errors also start with
+`error:`, but exit 2). Messages say what failed and, where there is one,
+the fix; user-supplied names, paths and types are wrapped in backticks,
+and contract types are shown as Rust-like names (`Vec<Address>`), never
+as Rust debug output or a panic backtrace. The conventions live on
+`CliError` in `crates/cli/src/commands/mod.rs`.
 
 `soroban-testkit audit` is a linter with three heuristics, not a security
 product. It can miss real bugs and flag non-bugs; a missing finding is not a
@@ -364,9 +379,23 @@ soroban-testkit coverage --format lcov --fail-under 92.5
 # What actually runs (shown with --verbose):
 #   cargo llvm-cov test --fail-under-lines 80
 soroban-testkit --verbose coverage --fail-under 80
+
+# Print that command without running it; needs neither cargo nor
+# cargo-llvm-cov installed:
+#   cargo llvm-cov test --lcov --output-path lcov.info --fail-under-lines 80
+soroban-testkit coverage --format lcov --fail-under 80 --dry-run
 ```
 
 In CI, run it as an ordinary step; its exit code gates the job.
+
+`--dry-run` is also how the flag forwarding is tested: the CLI's unit tests
+check the full command (program, arguments, and the `CARGO_TERM_COLOR` /
+`NO_COLOR` environment it sets) built by `coverage::Invocation`, and its
+integration tests run the real binary with `--dry-run` and an empty `PATH`,
+so `cargo test` never needs cargo-llvm-cov. `--open` combines only with
+`--format html` (or the default format, which it switches to HTML);
+`--format lcov --open` is rejected, since cargo-llvm-cov can't write both in
+one run.
 
 ### Output controls
 
