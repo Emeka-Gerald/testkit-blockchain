@@ -1,4 +1,5 @@
 use std::panic;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::process::Command;
 
 use clap::Args;
@@ -9,6 +10,53 @@ use soroban_sdk::{Address, Env, IntoVal, Symbol, Val, Vec as SVec};
 
 use super::output::Output;
 use super::{quote, CliError};
+
+/// The signal handler only sets an atomic flag; no IO runs inside it.
+static CANCELLED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(unix)]
+mod signals {
+    use super::{CANCELLED, Ordering};
+    use std::os::raw::c_int;
+    const SIGINT: c_int = 2;
+    const SIGTERM: c_int = 15;
+    unsafe extern "C" {
+        fn signal(signum: c_int, handler: usize) -> usize;
+    }
+    extern "C" fn cancel(_: c_int) {
+        CANCELLED.store(true, Ordering::Relaxed);
+    }
+    pub struct SignalGuard {
+        previous_int: usize,
+        previous_term: usize,
+    }
+    impl SignalGuard {
+        pub fn install() -> Self {
+            CANCELLED.store(false, Ordering::Relaxed);
+            // SAFETY: The installed handler only writes an atomic flag.
+            let previous_int = unsafe { signal(SIGINT, cancel as usize) };
+            let previous_term = unsafe { signal(SIGTERM, cancel as usize) };
+            Self { previous_int, previous_term }
+        }
+    }
+    impl Drop for SignalGuard {
+        fn drop(&mut self) {
+            // SAFETY: Restore the handlers returned by signal().
+            unsafe {
+                signal(SIGINT, self.previous_int);
+                signal(SIGTERM, self.previous_term);
+            }
+        }
+    }
+}
+
+#[cfg(not(unix))]
+mod signals {
+    pub struct SignalGuard;
+    impl SignalGuard {
+        pub fn install() -> Self { Self }
+    }
+}
 
 /// Arguments for `soroban-testkit limits`.
 #[derive(Args)]
@@ -80,6 +128,7 @@ pub struct ProbeArgs {
 /// constraint). Only CPU instructions and memory, available locally via
 /// the host's budget, are reported.
 pub fn run(args: LimitsArgs, out: Output) -> Result<(), CliError> {
+    let _signal_guard = signals::SignalGuard::install();
     // Validate the configuration (function exists, ramp parameter exists,
     // every parameter's type is one this command knows how to default or
     // ramp) up front, in-process, before spawning any probes — this is
@@ -122,6 +171,9 @@ pub fn run(args: LimitsArgs, out: Output) -> Result<(), CliError> {
     let mut low = 1u32;
     let mut high = None;
     loop {
+        if CANCELLED.load(Ordering::Relaxed) {
+            return report_interrupted(&args, last_ok);
+        }
         if probe(low)? {
             last_ok = Some(low);
             match low.checked_mul(2) {
@@ -140,6 +192,10 @@ pub fn run(args: LimitsArgs, out: Output) -> Result<(), CliError> {
         }
     }
 
+    if CANCELLED.load(Ordering::Relaxed) {
+        return report_interrupted(&args, last_ok);
+    }
+
     let Some(last_ok) = last_ok else {
         return Err(CliError(format!(
             "{} failed even at the smallest ramp value (1) for parameter {}; check that \
@@ -156,6 +212,9 @@ pub fn run(args: LimitsArgs, out: Output) -> Result<(), CliError> {
         let mut lo = last_ok;
         let mut hi = hi_start;
         while lo + 1 < hi {
+            if CANCELLED.load(Ordering::Relaxed) {
+                return report_interrupted(&args, Some(lo));
+            }
             let mid = lo + (hi - lo) / 2;
             if probe(mid)? {
                 lo = mid;
@@ -164,6 +223,10 @@ pub fn run(args: LimitsArgs, out: Output) -> Result<(), CliError> {
             }
         }
         best = lo;
+    }
+
+    if CANCELLED.load(Ordering::Relaxed) {
+        return report_interrupted(&args, Some(best));
     }
 
     // Measure resources at the best-known-good value, in-process this
@@ -182,6 +245,21 @@ pub fn run(args: LimitsArgs, out: Output) -> Result<(), CliError> {
     );
 
     Ok(())
+}
+
+/// A cancelled run reports its last successful probe without claiming
+/// a proven maximum or attempting a fresh WASM invocation.
+fn report_interrupted(args: &LimitsArgs, last_ok: Option<u32>) -> Result<(), CliError> {
+    match last_ok {
+        Some(value) => {
+            println!("interrupted; last successful {} for {:?}: {value} (partial result, not a proven maximum)", args.ramp, args.function);
+            println!("  resource measurements unavailable after cancellation");
+            Ok(())
+        }
+        None => Err(CliError(format!(
+            "limits search interrupted before any successful probe for {:?}", args.function
+        ))),
+    }
 }
 
 /// The hidden probe entry point: performs exactly one invocation and
@@ -530,6 +608,18 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn cancellation_without_success_is_an_error() {
+        let args = LimitsArgs {
+            contract: "test.wasm".into(),
+            function: "run".into(),
+            ramp: "amount".into(),
+        };
+        let err = report_interrupted(&args, None).expect_err("no successful result");
+        assert!(err.0.contains("before any successful probe"));
+        assert!(report_interrupted(&args, Some(7)).is_ok());
+    }
 
     fn vec_of(element: ScSpecTypeDef) -> ScSpecTypeDef {
         ScSpecTypeDef::Vec(Box::new(ScSpecTypeVec {
