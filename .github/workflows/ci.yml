@@ -24,7 +24,10 @@ env:
 jobs:
   lint:
     name: fmt + clippy
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -111,7 +114,10 @@ jobs:
 
   test:
     name: build + test
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -130,9 +136,16 @@ jobs:
       - run: cargo build --workspace
       - run: cargo test --workspace
       - name: Verify tests and CLI work without network access
+        if: runner.os != 'Windows'
         run: |
           sudo unshare --net -- runuser -u "$USER" --preserve-environment -- env CARGO_NET_OFFLINE=true cargo test --workspace --offline
           sudo unshare --net -- runuser -u "$USER" --preserve-environment -- env CARGO_NET_OFFLINE=true cargo run --offline -p soroban-testkit-cli -- --help
+      - name: Verify tests and CLI work without network access (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $env:CARGO_NET_OFFLINE="true"
+          cargo test --workspace --offline
+          cargo run --offline -p soroban-testkit-cli -- --help
       - name: Validate soroban-testkit package contents
         run: |
           files="$(cargo package -p soroban-testkit --list)"
@@ -143,7 +156,10 @@ jobs:
 
   examples:
     name: compile public examples
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -162,7 +178,10 @@ jobs:
 
   doc:
     name: cargo doc
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -179,7 +198,10 @@ jobs:
 
   audit:
     name: cargo audit
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -188,7 +210,10 @@ jobs:
 
   min-deps:
     name: minimum dependency versions
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
@@ -209,7 +234,10 @@ jobs:
 
   deny:
     name: cargo deny
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/install-action@cargo-deny
@@ -220,7 +248,10 @@ jobs:
 
   coverage:
     name: code coverage
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
