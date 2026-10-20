@@ -136,14 +136,10 @@ for things that don't belong in a dev-dependency:
 
 ### Installation
 
-Install the companion binary via `cargo install`:
+Install from crates.io:
 
 ```sh
-# From crates.io
 cargo install soroban-testkit-cli --locked
-
-# Or from a local workspace checkout
-cargo install --path crates/cli --locked
 ```
 
 Verify the installation:
@@ -152,25 +148,20 @@ Verify the installation:
 soroban-testkit --help
 ```
 
-### Clean environment validation
-
-To validate CLI installation in a clean temporary environment without modifying your global Cargo binary cache:
+Install from a local checkout:
 
 ```sh
-# Create an isolated temporary directory
-TMP_DIR=$(mktemp -d)
-
-# Install into the temporary root
-CARGO_INSTALL_ROOT="$TMP_DIR" cargo install --path crates/cli --locked
-
-# Validate the binary runs in the isolated environment
-"$TMP_DIR/bin/soroban-testkit" --help
-
-# Clean up
-rm -rf "$TMP_DIR"
+cargo install --path crates/cli --locked
 ```
 
-A reproducible smoke-test script is also provided at [`scripts/smoke_test_cli_install.sh`](scripts/smoke_test_cli_install.sh) (runnable via `make smoke-test-install`).
+Install to a temporary directory for validation:
+
+```sh
+TMP_DIR=$(mktemp -d)
+CARGO_INSTALL_ROOT="$TMP_DIR" cargo install --path crates/cli --locked
+"$TMP_DIR/bin/soroban-testkit" --help
+rm -rf "$TMP_DIR"
+```
 
 ### Usage
 

@@ -130,6 +130,25 @@ vault"
       - run: cargo build --workspace
       - run: cargo test --workspace
 
+  examples:
+    name: compile public examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+      - name: Cache wasm target
+        uses: actions/cache@v4
+        with:
+          path: ~/.rustup/toolchains/*/lib/rustlib/wasm32v1-none
+          key: wasm32v1-none-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml') }}
+          restore-keys: |
+            wasm32v1-none-${{ runner.os }}-
+      - uses: Swatinem/rust-cache@v2
+      - name: Build all examples
+        run: cargo build --examples --target wasm32v1-none --release
+
   doc:
     name: cargo doc
     runs-on: ubuntu-latest
