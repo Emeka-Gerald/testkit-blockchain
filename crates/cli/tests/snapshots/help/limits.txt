@@ -46,6 +46,9 @@ Options:
       --jobs <N>
           Probe up to N ramp values at once (1 to 8, default 1).
 
+      --dry-run
+          Generate and print one probe's arguments without invoking the contract.
+
   -h, --help
           Print help (see a summary with '-h')
 

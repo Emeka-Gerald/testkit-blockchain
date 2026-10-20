@@ -579,7 +579,7 @@ Use `clap` with derive. Three subcommands, built in this order.
 Wraps coverage collection for the WASM target, which does not work out of the box.
 
 ```
-soroban-testkit coverage [--format text|lcov|html|json] [--fail-under <pct>] [--open]
+soroban-testkit coverage [--format text|lcov|html|json] [--output <path>] [--fail-under <pct>] [--open]
 ```
 
 Shells out to the underlying coverage tool. Its job is knowing the right flags for Soroban's target, not reimplementing coverage.
@@ -589,10 +589,12 @@ Shells out to the underlying coverage tool. Its job is knowing the right flags f
 Empirically discovers resource ceilings rather than guessing them.
 
 ```
-soroban-testkit limits --contract <path-to-wasm> --fn <name> --ramp <param> [--jobs <n>]
+soroban-testkit limits --contract <path-to-wasm> --fn <name> --ramp <param> [--jobs <n>] [--dry-run]
 ```
 
 Invokes the function with an increasing parameter (e.g. recipient count) until it exceeds resource limits, then reports the last successful value plus instruction count, ledger reads/writes, and transaction size at that point.
+
+`--dry-run` loads the contract specification and prints the generated arguments for a single ramp value without invoking contract code.
 
 `--jobs <n>` (1 to 8, default 1) is opt-in. Each batch runs up to `n` probes concurrently, each in its own process. The doubling phase batches consecutive ladder values. The refinement phase probes up to `n` evenly spaced points between the bounds per round. Results are read back in ramp order, so the reported boundary is the same as a sequential run for any `n`, under the same monotonicity assumption that binary refinement already makes. A probe past the first failure is discarded, so higher values can use more CPU. With `--jobs 1`, probing is one at a time, as before.
 
