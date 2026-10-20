@@ -453,8 +453,14 @@ fn coverage_without_cargo_on_path_reports_how_to_install_it() {
     let output = run_without_tools(&["coverage", "--fail-under", "80"]);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(1), "stderr: {stderr}");
+    // Version gating (#194) checks `cargo llvm-cov --version` before
+    // running, so without tools on PATH the failure surfaces from the
+    // version check, not from spawning the run. Accept any of the
+    // install-related errors, all of which name the fix.
     assert!(
-        stderr.starts_with("error: failed to run `cargo llvm-cov`"),
+        stderr.starts_with("error: failed to inspect cargo-llvm-cov version")
+            || stderr.starts_with("error: cargo llvm-cov --version failed")
+            || stderr.starts_with("error: failed to run `cargo llvm-cov`"),
         "{stderr}"
     );
     assert!(stderr.contains("cargo install cargo-llvm-cov"), "{stderr}");

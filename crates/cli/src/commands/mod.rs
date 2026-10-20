@@ -98,7 +98,7 @@ pub enum Commands {
 ///   (`failed to read `x.wasm`: ...; pass the path to a compiled contract`).
 /// - Start lowercase and leave off the `error:` prefix; [`render_error`]
 ///   adds it (and strips a duplicate one).
-/// - Wrap user-supplied names, paths and flags with [`quote`].
+/// - Wrap user-supplied names, paths and flags with [`quote()`].
 /// - Use `Display`, never `{:?}`: no Rust debug output (`Os { code: 2, .. }`,
 ///   `Map(ScSpecTypeMap { .. })`, escaped strings) reaches the user.
 #[derive(Debug)]

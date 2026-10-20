@@ -24,6 +24,7 @@
 //!     }
 //! }
 //!
+//! # fn main() {
 //! // Setup: store a persistent entry.
 //! let env = TestEnv::new();
 //! let id = env.env().register(Store, ());
@@ -34,6 +35,7 @@
 //! env.assert_bumps_ttl(&id, StorageKind::Persistent, symbol_short!("k"), || {
 //!     client.touch(&symbol_short!("k"));
 //! });
+//! # }
 //! ```
 
 mod expiry;

@@ -34,7 +34,7 @@ A small escrow contract, tested end to end: mint a token, release it to
 the seller, and check the event, the balances, and that no value was
 created or destroyed along the way.
 
-```
+```rust
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env};
 use soroban_testkit::prelude::*;
 
@@ -188,7 +188,7 @@ Each command exits non-zero on failure, with the reason on stderr (#249):
 ```sh
 # coverage: cargo-llvm-cov not installed, or the run itself fails
 $ soroban-testkit coverage
-error: failed to run `cargo llvm-cov` (No such file or directory); is cargo-llvm-cov installed? try `cargo install cargo-llvm-cov`
+error: failed to inspect cargo-llvm-cov version (No such file or directory (os error 2)); install with `cargo install cargo-llvm-cov`
 $ soroban-testkit coverage --fail-under 90
 error: coverage run failed (cargo llvm-cov exited with exit status: 101)
 

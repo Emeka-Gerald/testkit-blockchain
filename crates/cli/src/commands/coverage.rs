@@ -309,6 +309,13 @@ impl Invocation {
                 push("--output-path");
                 push(args.output.as_deref().unwrap_or(std::path::Path::new(JSON_OUTPUT_PATH)).to_str().unwrap_or(JSON_OUTPUT_PATH));
             }
+            Format::Html => push("--html"),
+            Format::Json => {
+                push("--json");
+                push("--summary-only");
+                push("--output-path");
+                push(JSON_OUTPUT_PATH);
+            }
         }
 
         if args.open {
@@ -378,7 +385,6 @@ impl std::fmt::Display for Invocation {
     }
 }
 
-
 const MINIMUM_LLVM_COV_VERSION: (u64, u64, u64) = (0, 6, 0);
 
 fn parse_version(output: &str) -> Option<(u64, u64, u64)> {
@@ -444,10 +450,7 @@ fn ensure_opener_available() -> Result<(), CliError> {
     let opener = "xdg-open";
 
     let available = std::env::var_os("PATH")
-        .map(|path| {
-            std::env::split_paths(&path)
-                .any(|directory| directory.join(opener).is_file())
-        })
+        .map(|path| std::env::split_paths(&path).any(|directory| directory.join(opener).is_file()))
         .unwrap_or(false);
     if !available {
         return Err(CliError(format!(
@@ -490,7 +493,10 @@ mod tests {
     #[test]
     fn checks_tool_version_before_running_coverage() {
         assert_eq!(parse_version("cargo-llvm-cov 0.6.24"), Some((0, 6, 24)));
-        assert_eq!(parse_version("cargo-llvm-cov 0.6.0-beta.1"), Some((0, 6, 0)));
+        assert_eq!(
+            parse_version("cargo-llvm-cov 0.6.0-beta.1"),
+            Some((0, 6, 0))
+        );
         assert!(validate_version("cargo-llvm-cov 0.5.99").is_err());
         assert!(validate_version("not a version").is_err());
         assert!(validate_version("cargo-llvm-cov 0.6.0").is_ok());
@@ -505,8 +511,17 @@ mod tests {
         assert_eq!(
             cargo_args(&request, normal()),
             [
-                "llvm-cov", "test", "--package", "contract", "--package", "sdk",
-                "--test", "integration", "--", "name_filter", "--nocapture"
+                "llvm-cov",
+                "test",
+                "--package",
+                "contract",
+                "--package",
+                "sdk",
+                "--test",
+                "integration",
+                "--",
+                "name_filter",
+                "--nocapture"
             ]
         );
     }
@@ -608,14 +623,29 @@ mod tests {
                 covered: 34,
                 percent: 85.0,
             })
+        );
+    }
+
+    #[test]
     fn each_format_maps_to_its_cargo_llvm_cov_flags() {
-        let cases: [(Format, &[&str]); 3] = [
+        let cases: [(Format, &[&str]); 4] = [
             (Format::Text, &["llvm-cov", "test"]),
             (
                 Format::Lcov,
                 &["llvm-cov", "test", "--lcov", "--output-path", "lcov.info"],
             ),
             (Format::Html, &["llvm-cov", "test", "--html"]),
+            (
+                Format::Json,
+                &[
+                    "llvm-cov",
+                    "test",
+                    "--json",
+                    "--summary-only",
+                    "--output-path",
+                    "coverage.json",
+                ],
+            ),
         ];
         for (format, expected) in cases {
             assert_eq!(cargo_args(&args(format, None, false), normal()), expected);
@@ -686,6 +716,10 @@ mod tests {
         assert!(
             rejection(&SAMPLE.replace("\"percent\": 80.0", "\"percent\": \"80\""))
                 .contains("data[0].totals.regions.percent")
+        );
+    }
+
+    #[test]
     fn all_flags_combine_in_a_stable_order() {
         let invocation = Invocation::new(
             &args(Format::Html, Some(75.0), true),

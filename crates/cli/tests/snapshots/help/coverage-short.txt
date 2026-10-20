@@ -1,6 +1,9 @@
 Measure test coverage of a contract crate via cargo-llvm-cov
 
-Usage: soroban-testkit coverage [OPTIONS]
+Usage: soroban-testkit coverage [OPTIONS] [-- [TEST_ARGS]...]
+
+Arguments:
+  [TEST_ARGS]...  Arguments forwarded to the test binary after `--`
 
 Options:
       --format <FORMAT>   Output format [default: text] [possible values: text, lcov, html]
@@ -14,9 +17,14 @@ Options:
       --open              Open the HTML report in a browser after generating it (implies
                           --format html)
   -v, --verbose           Print extra diagnostics (commands run, files scanned) to stderr
+      --dry-run           Print the cargo command this would run, then exit without running it. Needs neither cargo nor cargo-llvm-cov
+  -p, --package <SPEC>    Workspace packages to cover; repeat to select multiple packages
+      --test <NAME>       Integration test targets to cover; repeat to select multiple targets
   -h, --help              Print help (see more with '--help')
 
 EXAMPLES:
     soroban-testkit coverage --format html --open
     soroban-testkit coverage --format lcov
+    soroban-testkit coverage --format json --fail-under 80
     soroban-testkit coverage --fail-under 80
+    soroban-testkit coverage --format lcov --fail-under 80 --dry-run

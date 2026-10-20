@@ -13,8 +13,9 @@
 //! // Operation: mint 500 units to `alice`.
 //! token.mint(&alice, 500);
 //!
-//! // Assertion: her balance reflects the mint.
-//! token.assert_balance(&alice, 500);
+//! // Assertion: her balance reflects the mint (500 whole tokens at 7
+//! // decimals = 5_000_000_000 base units).
+//! token.assert_balance(&alice, 5_000_000_000);
 //! ```
 
 mod sac;
