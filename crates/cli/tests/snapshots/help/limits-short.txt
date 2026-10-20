@@ -1,0 +1,22 @@
+Find the largest input a contract function handles before it fails
+
+Usage: soroban-testkit limits [OPTIONS] --contract <PATH> --fn <NAME> --ramp <PARAM>
+
+Options:
+      --contract <PATH>  Path to the compiled contract .wasm file
+                         (e.g. `target/wasm32v1-none/release/<crate>.wasm`)
+      --no-color         Never emit ANSI color codes, here or from tools this command runs
+                         (e.g. cargo). Same as setting the `NO_COLOR` environment variable
+      --fn <NAME>        The contract function to ramp, as named in the contract's spec
+  -q, --quiet            Print only results and errors; suppress advisory notes. Cannot be
+                         combined with --verbose
+      --ramp <PARAM>     The parameter of --fn to increase on each attempt: an integer type
+                         (ramped as the value) or `Vec<Address>` (ramped as its length)
+  -v, --verbose          Print extra diagnostics (commands run, files scanned) to stderr
+      --jobs <N>         Probe up to N ramp values at once (1 to 8, default 1).
+      --dry-run          Generate and print one probe's arguments without invoking the contract.
+  -h, --help             Print help (see more with '--help')
+
+EXAMPLES:
+    soroban-testkit limits --contract target/wasm32v1-none/release/my_contract.wasm --fn batch_payout --ramp recipients
+    soroban-testkit limits --contract my_contract.wasm --fn transfer --ramp amount

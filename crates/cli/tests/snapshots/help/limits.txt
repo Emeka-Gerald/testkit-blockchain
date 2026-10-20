@@ -1,0 +1,57 @@
+Find the largest input a contract function handles before it fails
+
+Invokes --fn on the compiled .wasm in a local Soroban host (no
+network), increasing the --ramp parameter: doubling from 1 until a
+call fails, then binary-searching between the last success and the
+first failure. Each attempt runs in its own subprocess. Values above
+16777216 (2^24) are not tried. Prints the last successful value with
+the CPU instructions and memory bytes it used.
+
+Limitations:
+  - --ramp must be u32/i32/u64/i64/u128/i128 (ramped as the value
+    itself) or `Vec<Address>` (ramped as its length).
+  - Other parameters get fixed defaults: a generated Address (one
+    named `token` gets a funded Stellar Asset Contract), `false`, 1
+    for integers, Symbol `x`, and an empty String, Bytes or Vec. Map,
+    Tuple, Option, Result and user-defined types are rejected.
+  - All authorization is mocked as approved.
+  - Ledger reads/writes and transaction size are not measured; they
+    need network-backed transaction simulation.
+
+Usage: soroban-testkit limits [OPTIONS] --contract <PATH> --fn <NAME> --ramp <PARAM>
+
+Options:
+      --contract <PATH>
+          Path to the compiled contract .wasm file
+          (e.g. `target/wasm32v1-none/release/<crate>.wasm`)
+
+      --no-color
+          Never emit ANSI color codes, here or from tools this command runs
+          (e.g. cargo). Same as setting the `NO_COLOR` environment variable
+
+      --fn <NAME>
+          The contract function to ramp, as named in the contract's spec
+
+  -q, --quiet
+          Print only results and errors; suppress advisory notes. Cannot be
+          combined with --verbose
+
+      --ramp <PARAM>
+          The parameter of --fn to increase on each attempt: an integer type
+          (ramped as the value) or `Vec<Address>` (ramped as its length)
+
+  -v, --verbose
+          Print extra diagnostics (commands run, files scanned) to stderr
+
+      --jobs <N>
+          Probe up to N ramp values at once (1 to 8, default 1).
+
+      --dry-run
+          Generate and print one probe's arguments without invoking the contract.
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+EXAMPLES:
+    soroban-testkit limits --contract target/wasm32v1-none/release/my_contract.wasm --fn batch_payout --ramp recipients
+    soroban-testkit limits --contract my_contract.wasm --fn transfer --ramp amount

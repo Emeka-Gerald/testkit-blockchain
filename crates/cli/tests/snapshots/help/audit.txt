@@ -1,0 +1,51 @@
+Static checks over a contract crate (not a security product)
+
+Parses every .rs file under PATH and reports three patterns:
+  - a function taking an Address parameter that never calls
+    require_auth
+  - arithmetic (+ - * /) on an i128-typed binding outside a
+    checked_/saturating_/wrapping_ call
+  - a persistent()/temporary() storage read with no extend_ttl in the
+    same function
+
+These are syntactic heuristics: findings can be false positives, and
+no findings does not mean a contract is secure. Files that fail to
+parse are skipped. Findings exit 0 unless --strict is passed.
+
+Usage: soroban-testkit audit [OPTIONS] [PATH]
+
+Arguments:
+  [PATH]
+          Directory or .rs file to audit; directories are scanned recursively
+          for .rs files. Pass `-` to read a single source file from stdin
+          (for editor integrations that audit unsaved buffers)
+          
+          [default: .]
+
+Options:
+      --no-color
+          Never emit ANSI color codes, here or from tools this command runs
+          (e.g. cargo). Same as setting the `NO_COLOR` environment variable
+
+      --strict
+          Exit 1 if any findings are reported. Without it, findings are
+          printed and the command still exits 0
+
+      --json
+          Print findings as a JSON document (`schema_version` 1) on stdout
+          instead of text
+
+  -q, --quiet
+          Print only results and errors; suppress advisory notes. Cannot be
+          combined with --verbose
+
+  -v, --verbose
+          Print extra diagnostics (commands run, files scanned) to stderr
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+EXAMPLES:
+    soroban-testkit audit ./src
+    soroban-testkit audit ./src --strict
+    soroban-testkit audit ./src --json | jq '.findings'

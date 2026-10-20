@@ -136,14 +136,10 @@ for things that don't belong in a dev-dependency:
 
 ### Installation
 
-Install the companion binary via `cargo install`:
+Install from crates.io:
 
 ```sh
-# From crates.io
 cargo install soroban-testkit-cli --locked
-
-# Or from a local workspace checkout
-cargo install --path crates/cli --locked
 ```
 
 Verify the installation:
@@ -152,25 +148,20 @@ Verify the installation:
 soroban-testkit --help
 ```
 
-### Clean environment validation
-
-To validate CLI installation in a clean temporary environment without modifying your global Cargo binary cache:
+Install from a local checkout:
 
 ```sh
-# Create an isolated temporary directory
-TMP_DIR=$(mktemp -d)
-
-# Install into the temporary root
-CARGO_INSTALL_ROOT="$TMP_DIR" cargo install --path crates/cli --locked
-
-# Validate the binary runs in the isolated environment
-"$TMP_DIR/bin/soroban-testkit" --help
-
-# Clean up
-rm -rf "$TMP_DIR"
+cargo install --path crates/cli --locked
 ```
 
-A reproducible smoke-test script is also provided at [`scripts/smoke_test_cli_install.sh`](scripts/smoke_test_cli_install.sh) (runnable via `make smoke-test-install`).
+Install to a temporary directory for validation:
+
+```sh
+TMP_DIR=$(mktemp -d)
+CARGO_INSTALL_ROOT="$TMP_DIR" cargo install --path crates/cli --locked
+"$TMP_DIR/bin/soroban-testkit" --help
+rm -rf "$TMP_DIR"
+```
 
 ### Usage
 
@@ -388,6 +379,43 @@ soroban-testkit coverage --format lcov --fail-under 80 --dry-run
 
 In CI, run it as an ordinary step; its exit code gates the job.
 
+### Coverage JSON summary
+
+`--format json` writes a machine-readable summary to `coverage.json` in the
+current directory, for CI steps that post or compare coverage numbers. It
+runs `cargo llvm-cov test --json --summary-only --output-path coverage.json`,
+so the file is LLVM's coverage export (`"type": "llvm.coverage.json.export"`,
+`"version": "2.x"`) with totals and per-file summaries but no per-line data.
+
+After the run, `coverage` checks the file against the fields below and fails
+with `error: coverage.json is not a valid coverage summary: ...` if any are
+missing or malformed:
+
+```json
+{
+  "type": "llvm.coverage.json.export",
+  "version": "2.0.1",
+  "data": [{
+    "totals": {
+      "lines":     { "count": 40, "covered": 34, "percent": 85.0 },
+      "functions": { "count": 10, "covered": 9,  "percent": 90.0 },
+      "regions":   { "count": 60, "covered": 48, "percent": 80.0 }
+    },
+    "files": [{ "filename": "src/lib.rs", "summary": { "lines": { "count": 40, "covered": 34, "percent": 85.0 } } }]
+  }]
+}
+```
+
+`count` and `covered` are non-negative integers with `covered <= count`, and
+`percent` is a number in `0..=100`. LLVM may add other fields (such as
+`branches`); consumers should ignore them. On success it prints
+`wrote coverage.json: line coverage 85.00% (34/40 lines)`, which `--quiet`
+suppresses. It combines with `--fail-under` and makes no network access.
+
+```sh
+soroban-testkit coverage --format json --fail-under 80
+jq '.data[0].totals.lines.percent' coverage.json
+```
 `--dry-run` is also how the flag forwarding is tested: the CLI's unit tests
 check the full command (program, arguments, and the `CARGO_TERM_COLOR` /
 `NO_COLOR` environment it sets) built by `coverage::Invocation`, and its

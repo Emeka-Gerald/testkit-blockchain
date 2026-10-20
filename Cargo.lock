@@ -1830,6 +1830,7 @@ dependencies = [
  "clap",
  "proc-macro2",
  "quote",
+ "serde_json",
  "soroban-sdk",
  "soroban-spec",
  "syn 3.0.5",

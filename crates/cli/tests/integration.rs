@@ -343,6 +343,7 @@ fn coverage_help_includes_usage_examples() {
     assert!(stdout.contains("EXAMPLES"), "{stdout}");
     assert!(stdout.contains("--format html"), "{stdout}");
     assert!(stdout.contains("--format lcov"), "{stdout}");
+    assert!(stdout.contains("--format json"), "{stdout}");
     assert!(stdout.contains("--fail-under"), "{stdout}");
     assert!(stdout.contains("--dry-run"), "{stdout}");
 }
@@ -357,6 +358,7 @@ fn limits_help_includes_usage_examples() {
     assert!(stdout.contains("--contract"), "{stdout}");
     assert!(stdout.contains("--fn"), "{stdout}");
     assert!(stdout.contains("--ramp"), "{stdout}");
+    assert!(stdout.contains("--dry-run"), "{stdout}");
 }
 
 #[test]

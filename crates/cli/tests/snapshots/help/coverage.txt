@@ -1,0 +1,50 @@
+Measure test coverage of a contract crate via cargo-llvm-cov
+
+Runs `cargo llvm-cov test` in the current directory. Contract tests
+run natively in soroban-sdk's test harness, not against the compiled
+.wasm, so ordinary LLVM source-based coverage applies with no
+Soroban-specific flags.
+
+Requires cargo-llvm-cov (`cargo install cargo-llvm-cov`); this
+command never installs it. It makes no network access itself, but
+cargo may fetch dependencies the crate has not downloaded yet.
+
+Usage: soroban-testkit coverage [OPTIONS]
+
+Options:
+      --format <FORMAT>
+          Output format
+
+          Possible values:
+          - text: Per-file coverage stats printed to the terminal
+          - lcov: Write ./lcov.info, for IDE and CI integrations (e.g. Coverage Gutters)
+          - html: Write a browsable report to target/llvm-cov/html/
+          
+          [default: text]
+
+      --no-color
+          Never emit ANSI color codes, here or from tools this command runs
+          (e.g. cargo). Same as setting the `NO_COLOR` environment variable
+
+      --fail-under <PCT>
+          Exit 1 if line coverage is below PCT percent (0-100). Forwarded to
+          cargo-llvm-cov as --fail-under-lines. Default: no threshold
+
+  -q, --quiet
+          Print only results and errors; suppress advisory notes. Cannot be
+          combined with --verbose
+
+      --open
+          Open the HTML report in a browser after generating it (implies
+          --format html)
+
+  -v, --verbose
+          Print extra diagnostics (commands run, files scanned) to stderr
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+EXAMPLES:
+    soroban-testkit coverage --format html --open
+    soroban-testkit coverage --format lcov
+    soroban-testkit coverage --fail-under 80

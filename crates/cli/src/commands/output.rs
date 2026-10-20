@@ -8,11 +8,18 @@ use clap::Args;
 #[derive(Args)]
 pub struct GlobalArgs {
     /// Never emit ANSI color codes, here or from tools this command runs
-    /// (e.g. cargo). Also honored via the `NO_COLOR` environment variable.
-    #[arg(long, global = true)]
+    /// (e.g. cargo). Same as setting the `NO_COLOR` environment variable
+    #[arg(long, global = true, verbatim_doc_comment)]
     pub no_color: bool,
-    /// Print only results and errors; suppress advisory notes.
-    #[arg(short, long, global = true, conflicts_with = "verbose")]
+    /// Print only results and errors; suppress advisory notes. Cannot be
+    /// combined with --verbose
+    #[arg(
+        short,
+        long,
+        global = true,
+        conflicts_with = "verbose",
+        verbatim_doc_comment
+    )]
     pub quiet: bool,
     /// Print extra diagnostics (commands run, files scanned) to stderr.
     #[arg(short, long, global = true)]

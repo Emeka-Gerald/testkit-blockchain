@@ -52,6 +52,33 @@ Proposals falling into these categories will be declined with an explanation poi
   `[package.metadata.docs.rs]` table in `crates/testkit/Cargo.toml`: one host
   target and `--cfg docsrs`. Change both together.
 
+### Network-free verification
+
+Tests and CLI commands must work without network access. On Linux, after
+fetching dependencies with `cargo fetch --locked`, run the workspace tests
+and CLI help command in a network namespace:
+
+```sh
+sudo unshare --net -- runuser -u "$USER" --preserve-environment -- env CARGO_NET_OFFLINE=true cargo test --workspace --offline
+sudo unshare --net -- runuser -u "$USER" --preserve-environment -- env CARGO_NET_OFFLINE=true cargo run --offline -p soroban-testkit-cli -- --help
+```
+
+The test job in `.github/workflows/ci.yml` runs the same checks. `--offline`
+prevents Cargo from fetching dependencies; the network namespace also prevents
+tests and the CLI process from opening network connections.
+
+### Release package contents
+
+Before publishing `soroban-testkit`, inspect its package file list:
+
+```sh
+cargo package -p soroban-testkit --list
+```
+
+The crate manifest excludes `crates/testkit/tests/**`; these are workspace
+integration checks, not files needed by downstream users. The package-list
+check also runs in CI.
+
 ## CI workflow permissions
 
 Every workflow under `.github/workflows/` declares a top-level
@@ -177,6 +204,12 @@ full policy check runs.
 - Failure messages are a first-class feature of this crate. An assertion
   helper whose failure message doesn't tell the user what went wrong and
   what to look at is not done.
+- CLI `--help` text must state each command's real defaults and
+  limitations. The top-level and every subcommand's `--help` and `-h`
+  output is pinned in `crates/cli/tests/snapshots/help/`; after an
+  intentional change, regenerate and commit the snapshots with
+  `UPDATE_HELP_SNAPSHOTS=1 cargo test -p soroban-testkit-cli --test help_snapshots`.
+  A new subcommand must add its snapshot cases there.
 
 
 ## Panic and error-handling policy

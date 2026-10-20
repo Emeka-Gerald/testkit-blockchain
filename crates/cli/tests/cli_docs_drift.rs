@@ -6,7 +6,19 @@ mod cli_docs_tests {
     use std::process::Command;
 
     fn get_help_output(subcommand: &str) -> String {
+        get_help_output_with(subcommand, "--help")
+    }
+
+    /// `-h` output. Unlike `--help`, which puts each description on the
+    /// line below its flag once any argument has multi-line help, `-h`
+    /// always prints a flag and its description on one line.
+    fn get_short_help_output(subcommand: &str) -> String {
+        get_help_output_with(subcommand, "-h")
+    }
+
+    fn get_help_output_with(subcommand: &str, flag: &str) -> String {
         let output = Command::new("cargo")
+            .args(["run", "--bin", "soroban-testkit", "--", subcommand, flag])
             .args([
                 "run",
                 "--bin",

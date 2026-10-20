@@ -96,8 +96,8 @@ jobs:
 
           # Check that we have exactly the documented workspace members
           expected="soroban-testkit
-soroban-testkit-cli
-vault"
+          soroban-testkit-cli
+          vault"
           echo "$expected" | sort > /tmp/expected_packages.txt
 
           if ! diff -q /tmp/expected_packages.txt /tmp/actual_packages.txt >/dev/null 2>&1; then
@@ -129,6 +129,36 @@ vault"
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --workspace
       - run: cargo test --workspace
+      - name: Verify tests and CLI work without network access
+        run: |
+          sudo unshare --net -- runuser -u "$USER" --preserve-environment -- env CARGO_NET_OFFLINE=true cargo test --workspace --offline
+          sudo unshare --net -- runuser -u "$USER" --preserve-environment -- env CARGO_NET_OFFLINE=true cargo run --offline -p soroban-testkit-cli -- --help
+      - name: Validate soroban-testkit package contents
+        run: |
+          files="$(cargo package -p soroban-testkit --list)"
+          if printf '%s\n' "$files" | grep -q '^tests/'; then
+            echo "::error::soroban-testkit package must exclude workspace integration tests"
+            exit 1
+          fi
+
+  examples:
+    name: compile public examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+      - name: Cache wasm target
+        uses: actions/cache@v4
+        with:
+          path: ~/.rustup/toolchains/*/lib/rustlib/wasm32v1-none
+          key: wasm32v1-none-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml') }}
+          restore-keys: |
+            wasm32v1-none-${{ runner.os }}-
+      - uses: Swatinem/rust-cache@v2
+      - name: Build all examples
+        run: cargo build --examples --target wasm32v1-none --release
 
   doc:
     name: cargo doc
