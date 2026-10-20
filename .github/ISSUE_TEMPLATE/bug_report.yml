@@ -56,10 +56,18 @@ body:
     validations:
       required: true
   - type: textarea
-    id: repro
+    id: steps
     attributes:
-      label: Minimal reproduction
+      label: Steps to reproduce
+      description: List the exact steps, inputs, or test command needed to reproduce the bug.
       render: rust
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What observable behavior will confirm this bug is fixed?
     validations:
       required: true
   - type: input

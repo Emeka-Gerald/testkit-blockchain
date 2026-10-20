@@ -43,6 +43,10 @@ pub struct CoverageArgs {
     /// Output format.
     #[arg(long, value_enum, default_value_t = Format::Text)]
     format: Format,
+    /// Write the report to this path (or directory for HTML). Defaults to
+    /// `lcov.info`, `coverage.json`, or `target/llvm-cov/html` by format.
+    #[arg(long, value_name = "PATH")]
+    output: Option<std::path::PathBuf>,
     /// Exit 1 if line coverage is below PCT percent (0-100). Forwarded to
     /// cargo-llvm-cov as --fail-under-lines. Default: no threshold
     #[arg(long, value_name = "PCT", verbatim_doc_comment)]
@@ -92,14 +96,14 @@ pub fn run(args: CoverageArgs, out: Output) -> Result<(), CliError> {
         ensure_opener_available()?;
     }
     out.detail(format!("running: {invocation}"));
-    let status = invocation.command().status().map_err(|err| {
+    let output = invocation.command().output().map_err(|err| {
         CliError(format!(
             "failed to run `cargo llvm-cov` ({err}); is cargo-llvm-cov installed? \
              try `cargo install cargo-llvm-cov`"
         ))
     })?;
 
-    if !status.success() {
+    if !output.status.success() {
         if args.open {
             return Err(CliError(format!(
                 "coverage run or HTML browser launch failed (cargo llvm-cov exited with {status}); try without --open, then open target/llvm-cov/html/index.html manually; check your browser configuration"
@@ -111,19 +115,20 @@ pub fn run(args: CoverageArgs, out: Output) -> Result<(), CliError> {
     }
 
     if matches!(args.format, Format::Json) {
-        let json = std::fs::read_to_string(JSON_OUTPUT_PATH).map_err(|err| {
+        let path = args.output.as_deref().unwrap_or(std::path::Path::new(JSON_OUTPUT_PATH));
+        let json = std::fs::read_to_string(path).map_err(|err| {
             CliError(format!(
-                "cargo llvm-cov succeeded but {JSON_OUTPUT_PATH} could not be read: {err}"
+                "cargo llvm-cov succeeded but {} could not be read: {err}", path.display()
             ))
         })?;
         let lines = validate_json_summary(&json).map_err(|err| {
             CliError(format!(
-                "{JSON_OUTPUT_PATH} is not a valid coverage summary: {err}"
+                "{} is not a valid coverage summary: {err}", path.display()
             ))
         })?;
         out.note(format!(
-            "wrote {JSON_OUTPUT_PATH}: line coverage {:.2}% ({}/{} lines)",
-            lines.percent, lines.covered, lines.count
+            "wrote {}: line coverage {:.2}% ({}/{} lines)", path.display(), lines.percent,
+            lines.covered, lines.count
         ));
     }
 
@@ -273,7 +278,12 @@ impl Invocation {
         let mut push = |arg: &str| cargo_args.push(arg.to_string());
 
         match args.format {
-            Format::Text => {}
+            Format::Text => {
+                if let Some(path) = &args.output {
+                    push("--output-path");
+                    push(path.to_str().unwrap_or("coverage.txt"));
+                }
+            }
             Format::Lcov if args.open => {
                 return Err(CliError(
                     "--open only applies to the HTML report; drop --open, or use \
@@ -284,7 +294,20 @@ impl Invocation {
             Format::Lcov => {
                 push("--lcov");
                 push("--output-path");
-                push("lcov.info");
+                push(args.output.as_deref().unwrap_or(std::path::Path::new("lcov.info")).to_str().unwrap_or("lcov.info"));
+            }
+            Format::Html => {
+                push("--html");
+                if let Some(path) = &args.output {
+                    push("--output-dir");
+                    push(path.to_str().unwrap_or("target/llvm-cov/html"));
+                }
+            }
+            Format::Json => {
+                push("--json");
+                push("--summary-only");
+                push("--output-path");
+                push(args.output.as_deref().unwrap_or(std::path::Path::new(JSON_OUTPUT_PATH)).to_str().unwrap_or(JSON_OUTPUT_PATH));
             }
             Format::Html => push("--html"),
             Format::Json => {
@@ -444,6 +467,7 @@ mod tests {
     fn args(format: Format, fail_under: Option<f64>, open: bool) -> CoverageArgs {
         CoverageArgs {
             format,
+            output: None,
             fail_under,
             open,
             dry_run: false,
@@ -554,6 +578,20 @@ mod tests {
                 "80",
             ]
         );
+    }
+
+    #[test]
+    fn explicit_output_path_is_forwarded_for_each_file_format() {
+        for (format, flag) in [(Format::Text, "--output-path"), (Format::Lcov, "--output-path"), (Format::Json, "--output-path")] {
+            let mut request = args(format, None, false);
+            request.output = Some("reports/result.out".into());
+            let cargo = cargo_args(&request, normal());
+            assert!(cargo.windows(2).any(|pair| pair == [flag.to_string(), "reports/result.out".to_string()]), "{cargo:?}");
+        }
+        let mut request = args(Format::Html, None, false);
+        request.output = Some("reports/html".into());
+        let cargo = cargo_args(&request, normal());
+        assert!(cargo.windows(2).any(|pair| pair == ["--output-dir".to_string(), "reports/html".to_string()]));
     }
 
     /// A trimmed `cargo llvm-cov test --json --summary-only` export.

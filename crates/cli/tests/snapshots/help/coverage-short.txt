@@ -6,7 +6,8 @@ Arguments:
   [TEST_ARGS]...  Arguments forwarded to the test binary after `--`
 
 Options:
-      --format <FORMAT>   Output format [default: text] [possible values: text, lcov, html, json]
+      --format <FORMAT>   Output format [default: text] [possible values: text, lcov, html]
+      --output <PATH>     Write the report to this path (or directory for HTML).
       --no-color          Never emit ANSI color codes, here or from tools this command runs
                           (e.g. cargo). Same as setting the `NO_COLOR` environment variable
       --fail-under <PCT>  Exit 1 if line coverage is below PCT percent (0-100). Forwarded to

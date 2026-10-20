@@ -96,8 +96,8 @@ jobs:
 
           # Check that we have exactly the documented workspace members
           expected="soroban-testkit
-soroban-testkit-cli
-vault"
+          soroban-testkit-cli
+          vault"
           echo "$expected" | sort > /tmp/expected_packages.txt
 
           if ! diff -q /tmp/expected_packages.txt /tmp/actual_packages.txt >/dev/null 2>&1; then
@@ -129,15 +129,36 @@ vault"
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --workspace
       - run: cargo test --workspace
-      # Issue #214: README runnable snippets. `cargo test --workspace`
-      # already runs the doctest (README is included via lib.rs) and the
-      # `readme_snippets` integration test, but these explicit steps keep
-      # the snippet check visible and fail with a pointed message when the
-      # README drifts from the CLI.
-      - name: README Rust snippets are executable doctests (#214)
-        run: cargo test --doc -p soroban-testkit
-      - name: README command snippets stay executable (#214)
-        run: cargo test -p soroban-testkit-cli --test readme_snippets
+      - name: Verify tests and CLI work without network access
+        run: |
+          sudo unshare --net -- runuser -u "$USER" --preserve-environment -- env CARGO_NET_OFFLINE=true cargo test --workspace --offline
+          sudo unshare --net -- runuser -u "$USER" --preserve-environment -- env CARGO_NET_OFFLINE=true cargo run --offline -p soroban-testkit-cli -- --help
+      - name: Validate soroban-testkit package contents
+        run: |
+          files="$(cargo package -p soroban-testkit --list)"
+          if printf '%s\n' "$files" | grep -q '^tests/'; then
+            echo "::error::soroban-testkit package must exclude workspace integration tests"
+            exit 1
+          fi
+
+  examples:
+    name: compile public examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+      - name: Cache wasm target
+        uses: actions/cache@v4
+        with:
+          path: ~/.rustup/toolchains/*/lib/rustlib/wasm32v1-none
+          key: wasm32v1-none-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.toml') }}
+          restore-keys: |
+            wasm32v1-none-${{ runner.os }}-
+      - uses: Swatinem/rust-cache@v2
+      - name: Build all examples
+        run: cargo build --examples --target wasm32v1-none --release
 
   doc:
     name: cargo doc
@@ -146,20 +167,9 @@ vault"
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # Every rustdoc warning (broken intra-doc links, missing docs, invalid
-      # code blocks, ...) fails CI. The workspace build covers all members;
-      # the per-crate steps below make coverage of each *publishable* crate
-      # explicit so none can silently drop out of the check.
-      - name: Workspace docs (warnings are errors)
-        run: cargo doc --workspace --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-      - name: soroban-testkit docs (warnings are errors)
-        run: cargo doc -p soroban-testkit --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-      - name: soroban-testkit-cli docs (warnings are errors)
-        run: cargo doc -p soroban-testkit-cli --no-deps
+      - name: Validate README documentation links
+        run: cargo test -p soroban-testkit-cli --test repo_config readme_links_resolve_to_current_paths
+      - run: cargo doc --workspace --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
       - name: docs.rs configuration (mirrors [package.metadata.docs.rs])

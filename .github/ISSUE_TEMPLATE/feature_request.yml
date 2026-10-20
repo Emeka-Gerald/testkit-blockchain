@@ -10,6 +10,13 @@ body:
         [contribution guidance](../../CONTRIBUTING.md). Proposals for
         mainnet/testnet forking, deployment tooling, frontend/JS testing,
         a test runner, or network-dependent features will be declined.
+  - type: checkboxes
+    id: scope_review
+    attributes:
+      label: Scope review
+      options:
+        - label: I reviewed [BUILD_SPEC.md §3 (Scope boundaries)](../../BUILD_SPEC.md#3-scope-boundaries) and confirm this proposal is in scope.
+          required: true
   - type: textarea
     id: problem
     attributes:
@@ -57,6 +64,13 @@ body:
     id: behavior
     attributes:
       label: Expected behavior / proposed public API
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Use case and reproduction steps
+      description: Describe a concrete scenario that demonstrates the testing gap.
     validations:
       required: true
   - type: textarea

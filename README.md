@@ -136,14 +136,10 @@ for things that don't belong in a dev-dependency:
 
 ### Installation
 
-Install the companion binary via `cargo install`:
+Install from crates.io:
 
 ```sh
-# From crates.io
 cargo install soroban-testkit-cli --locked
-
-# Or from a local workspace checkout
-cargo install --path crates/cli --locked
 ```
 
 Verify the installation:
@@ -152,25 +148,20 @@ Verify the installation:
 soroban-testkit --help
 ```
 
-### Clean environment validation
-
-To validate CLI installation in a clean temporary environment without modifying your global Cargo binary cache:
+Install from a local checkout:
 
 ```sh
-# Create an isolated temporary directory
-TMP_DIR=$(mktemp -d)
-
-# Install into the temporary root
-CARGO_INSTALL_ROOT="$TMP_DIR" cargo install --path crates/cli --locked
-
-# Validate the binary runs in the isolated environment
-"$TMP_DIR/bin/soroban-testkit" --help
-
-# Clean up
-rm -rf "$TMP_DIR"
+cargo install --path crates/cli --locked
 ```
 
-A reproducible smoke-test script is also provided at [`scripts/smoke_test_cli_install.sh`](scripts/smoke_test_cli_install.sh) (runnable via `make smoke-test-install`).
+Install to a temporary directory for validation:
+
+```sh
+TMP_DIR=$(mktemp -d)
+CARGO_INSTALL_ROOT="$TMP_DIR" cargo install --path crates/cli --locked
+"$TMP_DIR/bin/soroban-testkit" --help
+rm -rf "$TMP_DIR"
+```
 
 ### Usage
 
@@ -480,18 +471,17 @@ network fetch, instead of silently falling back to it.
 
 ## Supported versions
 
-- **Rust:** the `stable` channel pinned in
-  [`rust-toolchain.toml`](rust-toolchain.toml). There is no separate MSRV —
-  the pinned stable toolchain is the only version CI runs against. See
-  [CONTRIBUTING.md's Rust edition policy](CONTRIBUTING.md#rust-edition-policy)
-  for how and when that pin moves.
-- **`soroban-sdk`:** the version pinned in `[workspace.dependencies]` in the
-  root `Cargo.toml` is the only version this crate is tested against for
-  every PR. A weekly `scheduled-sdk-check` CI job additionally builds and
-  tests the workspace against whatever version crates.io currently
-  considers latest, independent of that pin, and opens a tracking issue if
-  a newer release breaks compatibility — so drift is caught before a
-  contributor hits it, without requiring every PR to track upstream.
+| Rust toolchain | `soroban-sdk` | Validation | Cadence |
+| --- | --- | --- | --- |
+| `stable` from [`rust-toolchain.toml`](rust-toolchain.toml) | `27.0.6`, pinned in [`Cargo.toml`](Cargo.toml) | `cargo build --workspace`, `cargo test --workspace`, and `cargo doc --workspace` | Every pull request |
+| `stable` | Latest crates.io release | `cargo build --workspace` and `cargo test --workspace` | Weekly by [`scheduled-sdk-check`](.github/workflows/ci.yml) |
+| Latest `nightly` | Pinned workspace version (`27.0.6`) | `cargo +nightly build --workspace` and `cargo +nightly test --workspace` | Weekly by [`scheduled-nightly-check`](.github/workflows/ci.yml) |
+
+The pinned stable toolchain and SDK version are the supported combination;
+the scheduled latest-SDK and nightly runs are compatibility signals, not
+additional support guarantees. They open a tracking issue when a scheduled
+run fails. See [CONTRIBUTING.md's Rust edition policy](CONTRIBUTING.md#rust-edition-policy)
+for how and when the stable toolchain pin moves.
 
 ## Status
 

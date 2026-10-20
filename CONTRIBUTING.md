@@ -52,6 +52,33 @@ Proposals falling into these categories will be declined with an explanation poi
   `[package.metadata.docs.rs]` table in `crates/testkit/Cargo.toml`: one host
   target and `--cfg docsrs`. Change both together.
 
+### Network-free verification
+
+Tests and CLI commands must work without network access. On Linux, after
+fetching dependencies with `cargo fetch --locked`, run the workspace tests
+and CLI help command in a network namespace:
+
+```sh
+sudo unshare --net -- runuser -u "$USER" --preserve-environment -- env CARGO_NET_OFFLINE=true cargo test --workspace --offline
+sudo unshare --net -- runuser -u "$USER" --preserve-environment -- env CARGO_NET_OFFLINE=true cargo run --offline -p soroban-testkit-cli -- --help
+```
+
+The test job in `.github/workflows/ci.yml` runs the same checks. `--offline`
+prevents Cargo from fetching dependencies; the network namespace also prevents
+tests and the CLI process from opening network connections.
+
+### Release package contents
+
+Before publishing `soroban-testkit`, inspect its package file list:
+
+```sh
+cargo package -p soroban-testkit --list
+```
+
+The crate manifest excludes `crates/testkit/tests/**`; these are workspace
+integration checks, not files needed by downstream users. The package-list
+check also runs in CI.
+
 ## CI workflow permissions
 
 Every workflow under `.github/workflows/` declares a top-level
@@ -157,6 +184,9 @@ full policy check runs.
 
 ## Code conventions
 
+- **Test names describe behavior, condition, and outcome.** Prefer
+  `<behavior>_when_<condition>_then_<expected_outcome>`; omit a clause only
+  when it does not apply. Do not prefix Rust test functions with `test_`.
 - No `unwrap()` or `expect()` in library code outside tests.
 - Assertion helpers panic deliberately (that is their contract), but always
   with `TestkitError` context, never a bare `panic!("...")` message.

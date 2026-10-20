@@ -358,6 +358,7 @@ fn limits_help_includes_usage_examples() {
     assert!(stdout.contains("--contract"), "{stdout}");
     assert!(stdout.contains("--fn"), "{stdout}");
     assert!(stdout.contains("--ramp"), "{stdout}");
+    assert!(stdout.contains("--dry-run"), "{stdout}");
 }
 
 #[test]
