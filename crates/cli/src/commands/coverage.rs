@@ -96,14 +96,14 @@ pub fn run(args: CoverageArgs, out: Output) -> Result<(), CliError> {
         ensure_opener_available()?;
     }
     out.detail(format!("running: {invocation}"));
-    let status = invocation.command().status().map_err(|err| {
+    let output = invocation.command().output().map_err(|err| {
         CliError(format!(
             "failed to run `cargo llvm-cov` ({err}); is cargo-llvm-cov installed? \
              try `cargo install cargo-llvm-cov`"
         ))
     })?;
 
-    if !status.success() {
+    if !output.status.success() {
         if args.open {
             return Err(CliError(format!(
                 "coverage run or HTML browser launch failed (cargo llvm-cov exited with {status}); try without --open, then open target/llvm-cov/html/index.html manually; check your browser configuration"
