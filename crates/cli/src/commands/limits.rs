@@ -80,6 +80,10 @@ pub struct LimitsArgs {
     /// Probe up to N ramp values at once (1 to 8, default 1).
     #[arg(long, value_name = "N", default_value_t = 1)]
     jobs: usize,
+    /// Generate and print one probe's arguments without invoking the contract.
+    /// This validates the contract spec and is useful when diagnosing defaults.
+    #[arg(long)]
+    dry_run: bool,
 }
 
 /// Largest accepted `--jobs`. Each concurrent probe is a full child process.
@@ -163,7 +167,11 @@ pub fn run(args: LimitsArgs, out: Output) -> Result<(), CliError> {
     // reports its actual cause instead of the generic "failed at value 1"
     // a swallowed child-process error would otherwise produce.
     let (_, env, function, ramp_index) = load(&args.contract, &args.function, &args.ramp)?;
-    build_args(&env, &function, ramp_index, 1)?;
+    let preview = build_args(&env, &function, ramp_index, 1)?;
+    if args.dry_run {
+        println!("probe {}=1 generated arguments: {preview:?}", args.ramp);
+        return Ok(());
+    }
     drop(env);
 
     let self_exe = std::env::current_exe()
@@ -861,6 +869,7 @@ mod tests {
                 function: "run".into(),
                 ramp: "amount".into(),
                 jobs,
+                dry_run: false,
             };
             let out = crate::commands::output::Output {
                 verbosity: crate::commands::output::Verbosity::Quiet,
@@ -878,6 +887,7 @@ mod tests {
             function: "run".into(),
             ramp: "amount".into(),
             jobs: 1,
+            dry_run: false,
         };
         let err = report_interrupted(&args, None).expect_err("no successful result");
         assert!(err.0.contains("before any successful probe"));
