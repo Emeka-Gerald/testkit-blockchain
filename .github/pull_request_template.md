@@ -11,6 +11,8 @@
 - [ ] `cargo fmt --check` passes
 - [ ] `cargo clippy -- -D warnings` passes
 - [ ] `cargo test --workspace` passes
+- [ ] Documentation is updated or not needed
+- [ ] User-visible behavior changes are described and tested, or marked N/A
 - [ ] Public API changes have doc comments with a runnable `# Example`
 - [ ] New assertion helpers have both a passing and a
       `#[should_panic(expected = "...")]` test

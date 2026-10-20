@@ -60,6 +60,13 @@ body:
     validations:
       required: true
   - type: textarea
+    id: steps
+    attributes:
+      label: Use case and reproduction steps
+      description: Describe a concrete scenario that demonstrates the testing gap.
+    validations:
+      required: true
+  - type: textarea
     id: acceptance
     attributes:
       label: Acceptance criteria
