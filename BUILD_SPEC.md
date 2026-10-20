@@ -589,10 +589,12 @@ Shells out to the underlying coverage tool. Its job is knowing the right flags f
 Empirically discovers resource ceilings rather than guessing them.
 
 ```
-soroban-testkit limits --contract <path-to-wasm> --fn <name> --ramp <param>
+soroban-testkit limits --contract <path-to-wasm> --fn <name> --ramp <param> [--jobs <n>]
 ```
 
 Invokes the function with an increasing parameter (e.g. recipient count) until it exceeds resource limits, then reports the last successful value plus instruction count, ledger reads/writes, and transaction size at that point.
+
+`--jobs <n>` (1 to 8, default 1) is opt-in. Each batch runs up to `n` probes concurrently, each in its own process. The doubling phase batches consecutive ladder values. The refinement phase probes up to `n` evenly spaced points between the bounds per round. Results are read back in ramp order, so the reported boundary is the same as a sequential run for any `n`, under the same monotonicity assumption that binary refinement already makes. A probe past the first failure is discarded, so higher values can use more CPU. With `--jobs 1`, probing is one at a time, as before.
 
 **This directly answers the `batch_payout` maximum-recipients question** and is the CLI's most compelling demo. Feature it in the README.
 

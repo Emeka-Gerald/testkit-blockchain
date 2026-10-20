@@ -43,6 +43,9 @@ Options:
   -v, --verbose
           Print extra diagnostics (commands run, files scanned) to stderr
 
+      --jobs <N>
+          Probe up to N ramp values at once (1 to 8, default 1).
+
   -h, --help
           Print help (see a summary with '-h')
 

@@ -75,6 +75,24 @@ pub struct LimitsArgs {
     /// (ramped as the value) or `Vec<Address>` (ramped as its length)
     #[arg(long, value_name = "PARAM", verbatim_doc_comment)]
     ramp: String,
+    // Results are read back in ramp order, so the boundary matches a sequential
+    // run. Probes past the first failure are discarded; see BUILD_SPEC.md.
+    /// Probe up to N ramp values at once (1 to 8, default 1).
+    #[arg(long, value_name = "N", default_value_t = 1)]
+    jobs: usize,
+}
+
+/// Largest accepted `--jobs`. Each concurrent probe is a full child process.
+pub const MAX_JOBS: usize = 8;
+
+/// Largest ramp value tried while doubling. Values above it are never probed.
+const SEARCH_CEILING: u32 = 1 << 24;
+
+/// Outcome of one search phase. `Cancelled` carries the best known success.
+#[derive(Debug, PartialEq)]
+enum Search<T> {
+    Done(T),
+    Cancelled { last_ok: Option<u32> },
 }
 
 /// Hidden: runs exactly one probe (a single ramp value) and reports its
@@ -130,6 +148,12 @@ pub struct ProbeArgs {
 /// constraint). Only CPU instructions and memory, available locally via
 /// the host's budget, are reported.
 pub fn run(args: LimitsArgs, out: Output) -> Result<(), CliError> {
+    if args.jobs == 0 || args.jobs > MAX_JOBS {
+        return Err(CliError(format!(
+            "--jobs must be between 1 and {MAX_JOBS} (got {})",
+            args.jobs
+        )));
+    }
     let _signal_guard = signals::SignalGuard::install();
     // Validate the configuration (function exists, ramp parameter exists,
     // every parameter's type is one this command knows how to default or
@@ -145,60 +169,38 @@ pub fn run(args: LimitsArgs, out: Output) -> Result<(), CliError> {
     let self_exe = std::env::current_exe()
         .map_err(|err| CliError(format!("failed to locate this binary: {err}")))?;
 
-    let probe = |value: u32| -> Result<bool, CliError> {
-        let status = Command::new(&self_exe)
-            .arg("__limits-probe")
-            .arg("--contract")
-            .arg(&args.contract)
-            .arg("--fn")
-            .arg(&args.function)
-            .arg("--ramp")
-            .arg(&args.ramp)
-            .arg("--value")
-            .arg(value.to_string())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map_err(|err| CliError(format!("failed to spawn probe: {err}")))?;
-        out.detail(format!(
-            "probe {}={value}: {}",
-            args.ramp,
-            if status.success() { "ok" } else { "failed" }
-        ));
-        Ok(status.success())
+    // Runs one batch of probes concurrently, then logs them in ramp order.
+    // Returns `None` when the run is cancelled before the batch starts.
+    let mut probe_batch = |values: &[u32]| -> Result<Option<Vec<bool>>, CliError> {
+        if CANCELLED.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let results =
+            probe_concurrently(values, |value| run_probe_process(&self_exe, &args, value));
+        let mut outcomes = Vec::with_capacity(values.len());
+        for (value, result) in values.iter().zip(results) {
+            let ok = result?;
+            out.detail(format!(
+                "probe {}={value}: {}",
+                args.ramp,
+                if ok { "ok" } else { "failed" }
+            ));
+            outcomes.push(ok);
+        }
+        Ok(Some(outcomes))
     };
 
     // Find a failing upper bound by doubling.
-    let mut last_ok: Option<u32> = None;
-    let mut low = 1u32;
-    let mut high = None;
-    loop {
-        if CANCELLED.load(Ordering::Relaxed) {
-            return report_interrupted(&args, last_ok);
-        }
-        if probe(low)? {
-            last_ok = Some(low);
-            match low.checked_mul(2) {
-                Some(next) => low = next,
-                None => {
-                    high = None;
-                    break;
-                }
-            }
-        } else {
-            high = Some(low);
-            break;
-        }
-        if low > 1 << 24 {
-            break;
-        }
-    }
+    let (ladder_ok, ladder_failed) = match find_ladder_bounds(args.jobs, &mut probe_batch)? {
+        Search::Done(bounds) => bounds,
+        Search::Cancelled { last_ok } => return report_interrupted(&args, last_ok),
+    };
 
     if CANCELLED.load(Ordering::Relaxed) {
-        return report_interrupted(&args, last_ok);
+        return report_interrupted(&args, ladder_ok);
     }
 
-    let Some(last_ok) = last_ok else {
+    let Some(last_ok) = ladder_ok else {
         return Err(CliError(format!(
             "{} failed even at the smallest ramp value (1) for parameter {}; check that \
              the function succeeds with default arguments (run with --verbose to see each probe)",
@@ -210,21 +212,11 @@ pub fn run(args: LimitsArgs, out: Output) -> Result<(), CliError> {
     // Binary search between the last success and the first failure for a
     // tighter bound, if we found one.
     let mut best = last_ok;
-    if let Some(hi_start) = high {
-        let mut lo = last_ok;
-        let mut hi = hi_start;
-        while lo + 1 < hi {
-            if CANCELLED.load(Ordering::Relaxed) {
-                return report_interrupted(&args, Some(lo));
-            }
-            let mid = lo + (hi - lo) / 2;
-            if probe(mid)? {
-                lo = mid;
-            } else {
-                hi = mid;
-            }
-        }
-        best = lo;
+    if let Some(hi_start) = ladder_failed {
+        best = match refine_boundary(last_ok, hi_start, args.jobs, &mut probe_batch)? {
+            Search::Done(boundary) => boundary,
+            Search::Cancelled { last_ok } => return report_interrupted(&args, last_ok),
+        };
     }
 
     if CANCELLED.load(Ordering::Relaxed) {
@@ -247,6 +239,139 @@ pub fn run(args: LimitsArgs, out: Output) -> Result<(), CliError> {
     );
 
     Ok(())
+}
+
+/// Runs one probe in its own process. `Ok(true)` means the ramp value succeeded.
+fn run_probe_process(
+    self_exe: &std::path::Path,
+    args: &LimitsArgs,
+    value: u32,
+) -> Result<bool, CliError> {
+    let status = Command::new(self_exe)
+        .arg("__limits-probe")
+        .arg("--contract")
+        .arg(&args.contract)
+        .arg("--fn")
+        .arg(&args.function)
+        .arg("--ramp")
+        .arg(&args.ramp)
+        .arg("--value")
+        .arg(value.to_string())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map_err(|err| CliError(format!("failed to spawn probe: {err}")))?;
+    Ok(status.success())
+}
+
+/// Runs `work` on each value on its own thread and returns the results in
+/// the order of `values`. A worker that panics reports an error for its value.
+fn probe_concurrently(
+    values: &[u32],
+    work: impl Fn(u32) -> Result<bool, CliError> + Sync,
+) -> Vec<Result<bool, CliError>> {
+    std::thread::scope(|scope| {
+        let work = &work;
+        let workers: Vec<_> = values
+            .iter()
+            .map(|&value| scope.spawn(move || work(value)))
+            .collect();
+        workers
+            .into_iter()
+            .map(|worker| {
+                worker.join().unwrap_or_else(|_| {
+                    Err(CliError(
+                        "an isolated probe worker panicked; re-run with --jobs 1".to_string(),
+                    ))
+                })
+            })
+            .collect()
+    })
+}
+
+/// The doubling ladder value after `value`, or `None` past [`SEARCH_CEILING`].
+fn ladder_successor(value: u32) -> Option<u32> {
+    value.checked_mul(2).filter(|next| *next <= SEARCH_CEILING)
+}
+
+/// Up to `jobs` consecutive ladder values starting at `start`, never past
+/// [`SEARCH_CEILING`]. A `jobs` of 0 is treated as 1.
+fn ladder_batch(start: u32, jobs: usize) -> Vec<u32> {
+    let mut batch = Vec::new();
+    let mut current = Some(start);
+    while let Some(value) = current {
+        if batch.len() == jobs.max(1) {
+            break;
+        }
+        batch.push(value);
+        current = ladder_successor(value);
+    }
+    batch
+}
+
+/// Doubling phase. Probes ladder values in batches of `jobs`, reads each
+/// batch in order, and stops at the first failure. Returns the last success
+/// and the first failure. Both are `None` when the search reached the ceiling
+/// without failing.
+fn find_ladder_bounds<P>(
+    jobs: usize,
+    mut probe_batch: P,
+) -> Result<Search<(Option<u32>, Option<u32>)>, CliError>
+where
+    P: FnMut(&[u32]) -> Result<Option<Vec<bool>>, CliError>,
+{
+    let mut last_ok = None;
+    let mut next = Some(1u32);
+    while let Some(start) = next {
+        let batch = ladder_batch(start, jobs);
+        let Some(results) = probe_batch(&batch)? else {
+            return Ok(Search::Cancelled { last_ok });
+        };
+        for (value, ok) in batch.into_iter().zip(results) {
+            if !ok {
+                return Ok(Search::Done((last_ok, Some(value))));
+            }
+            last_ok = Some(value);
+            next = ladder_successor(value);
+        }
+    }
+    Ok(Search::Done((last_ok, None)))
+}
+
+/// Refinement phase. `lo` is a known success and `hi` a known failure.
+/// Each round probes up to `jobs` evenly spaced points strictly between
+/// them, then keeps the sub-interval that straddles the first failure. With
+/// `jobs` = 1 this is the classic midpoint binary search. The search ends
+/// when `lo` and `hi` are adjacent, and returns `lo`.
+fn refine_boundary<P>(
+    mut lo: u32,
+    mut hi: u32,
+    jobs: usize,
+    mut probe_batch: P,
+) -> Result<Search<u32>, CliError>
+where
+    P: FnMut(&[u32]) -> Result<Option<Vec<bool>>, CliError>,
+{
+    while lo + 1 < hi {
+        let gap = hi - lo;
+        // At least one point, and never more points than fit strictly inside.
+        let count = jobs.max(1).min((gap - 1) as usize);
+        let points: Vec<u32> = (1..=count as u32)
+            .map(|i| lo + gap * i / (count as u32 + 1))
+            .collect();
+        let Some(results) = probe_batch(&points)? else {
+            return Ok(Search::Cancelled { last_ok: Some(lo) });
+        };
+        match results.iter().position(|ok| !ok) {
+            Some(0) => hi = points[0],
+            Some(first_failure) => {
+                lo = points[first_failure - 1];
+                hi = points[first_failure];
+            }
+            None => lo = points[count - 1],
+        }
+    }
+    Ok(Search::Done(lo))
 }
 
 /// A cancelled run reports its last successful probe without claiming
@@ -611,12 +736,148 @@ mod tests {
 
     use super::*;
 
+    /// A probe where a value succeeds exactly when it is at most `threshold`.
+    fn threshold_probe(
+        threshold: u32,
+    ) -> impl FnMut(&[u32]) -> Result<Option<Vec<bool>>, CliError> {
+        move |values: &[u32]| -> Result<Option<Vec<bool>>, CliError> {
+            Ok(Some(values.iter().map(|v| *v <= threshold).collect()))
+        }
+    }
+
+    /// The boundary `run` reports for `threshold`: doubling, then refinement.
+    fn boundary_for(threshold: u32, jobs: usize) -> Option<u32> {
+        let bounds = match find_ladder_bounds(jobs, threshold_probe(threshold)).unwrap() {
+            Search::Done(bounds) => bounds,
+            Search::Cancelled { .. } => unreachable!("no cancellation in this test"),
+        };
+        let (last_ok, first_failed) = bounds;
+        let last_ok = last_ok?;
+        let Some(hi) = first_failed else {
+            return Some(last_ok);
+        };
+        match refine_boundary(last_ok, hi, jobs, threshold_probe(threshold)).unwrap() {
+            Search::Done(boundary) => Some(boundary),
+            Search::Cancelled { .. } => unreachable!("no cancellation in this test"),
+        }
+    }
+
+    #[test]
+    fn boundary_is_the_same_for_every_jobs_value() {
+        let thresholds = [
+            1,
+            2,
+            3,
+            5,
+            7,
+            8,
+            100,
+            1000,
+            SEARCH_CEILING - 1,
+            SEARCH_CEILING,
+            u32::MAX,
+        ];
+        for threshold in thresholds {
+            let expected = threshold.min(SEARCH_CEILING);
+            for jobs in 1..=MAX_JOBS {
+                assert_eq!(
+                    boundary_for(threshold, jobs),
+                    Some(expected),
+                    "threshold {threshold}, jobs {jobs}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_failing_first_value_leaves_no_success() {
+        assert_eq!(
+            find_ladder_bounds(4, threshold_probe(0)).unwrap(),
+            Search::Done((None, Some(1)))
+        );
+    }
+
+    #[test]
+    fn each_batch_uses_exactly_the_requested_concurrency() {
+        for jobs in 1..=MAX_JOBS {
+            let mut inner = threshold_probe(1000);
+            let mut largest_batch = 0;
+            let mut probe = |values: &[u32]| {
+                largest_batch = largest_batch.max(values.len());
+                inner(values)
+            };
+            let Search::Done((Some(lo), Some(hi))) = find_ladder_bounds(jobs, &mut probe).unwrap()
+            else {
+                panic!("expected a bracket around 1000 for jobs {jobs}");
+            };
+            refine_boundary(lo, hi, jobs, &mut probe).unwrap();
+            assert_eq!(largest_batch, jobs, "jobs {jobs}");
+        }
+    }
+
+    #[test]
+    fn cancellation_mid_search_keeps_the_last_success() {
+        let mut calls = 0;
+        let mut probe = |values: &[u32]| -> Result<Option<Vec<bool>>, CliError> {
+            calls += 1;
+            if calls == 1 {
+                Ok(Some(values.iter().map(|_| true).collect()))
+            } else {
+                Ok(None)
+            }
+        };
+        assert_eq!(
+            find_ladder_bounds(2, &mut probe).unwrap(),
+            Search::Cancelled { last_ok: Some(2) }
+        );
+    }
+
+    #[test]
+    fn ladder_batches_double_and_stop_at_the_ceiling() {
+        assert_eq!(ladder_batch(1, 1), vec![1]);
+        assert_eq!(ladder_batch(1, 3), vec![1, 2, 4]);
+        assert_eq!(ladder_batch(1 << 23, 4), vec![1 << 23, 1 << 24]);
+        assert_eq!(ladder_batch(1 << 24, 4), vec![1 << 24]);
+        assert_eq!(ladder_batch(2, 0), vec![2]);
+    }
+
+    #[test]
+    fn concurrent_probes_return_results_in_input_order() {
+        let values = [4, 1, 6, 3];
+        let results = probe_concurrently(&values, |value| {
+            // Later values finish first, so completion order differs from input order.
+            std::thread::sleep(std::time::Duration::from_millis(u64::from(10 - value)));
+            Ok(value % 2 == 1)
+        });
+        let outcomes: Vec<bool> = results.into_iter().map(|r| r.unwrap()).collect();
+        assert_eq!(outcomes, vec![false, true, false, true]);
+    }
+
+    #[test]
+    fn jobs_outside_one_to_eight_is_rejected_before_loading_the_contract() {
+        for jobs in [0, MAX_JOBS + 1] {
+            let args = LimitsArgs {
+                contract: "missing.wasm".into(),
+                function: "run".into(),
+                ramp: "amount".into(),
+                jobs,
+            };
+            let out = crate::commands::output::Output {
+                verbosity: crate::commands::output::Verbosity::Quiet,
+                color: false,
+            };
+            let err = run(args, out).unwrap_err();
+            assert_eq!(err.0, format!("--jobs must be between 1 and 8 (got {jobs})"));
+        }
+    }
+
     #[test]
     fn cancellation_without_success_is_an_error() {
         let args = LimitsArgs {
             contract: "test.wasm".into(),
             function: "run".into(),
             ramp: "amount".into(),
+            jobs: 1,
         };
         let err = report_interrupted(&args, None).expect_err("no successful result");
         assert!(err.0.contains("before any successful probe"));
